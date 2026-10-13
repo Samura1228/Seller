@@ -1,0 +1,13 @@
+telethon>=1.45,<2
+cryptg>=0.6
+sqlalchemy[asyncio]>=2.1,<2.2
+asyncpg>=0.32
+alembic>=1.20
+pydantic>=2.14
+pydantic-settings>=2.15
+anthropic>=1.13,<2
+pillow>=12.3
+pillow-heif>=1.8
+httpx>=0.28
+fastapi>=0.143
+uvicorn[standard]>=0.54
