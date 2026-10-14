@@ -54,7 +54,7 @@
 
 1. Залей код в GitHub-репозиторий. В Railway создай **New Project → Deploy from GitHub repo**.
 2. Добавь в проект **PostgreSQL**. В сервисе бота заведи переменную `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`.
-3. В сервисе бота: **Settings → Volumes → Add Volume**, mount path `/data`.
+3. Volume: правый клик по пустому месту на холсте проекта (или `⌘K` → «Volume») → выбрать сервис **Seller** → mount path `/data`.
 4. Заполни переменные окружения по `.env.example`. `DATA_DIR` не задавай: по умолчанию используется `/data`.
 5. Задеплой. Миграции БД применяются автоматически при старте. В логах должно появиться `Bot started as @...`.
 6. Напиши боту `/start`.
