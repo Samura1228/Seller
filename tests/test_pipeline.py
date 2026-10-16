@@ -170,12 +170,12 @@ async def test_full_stage1_flow(tmp_path, mock_ai):
         assert events == [ItemStatus.NEW, ItemStatus.RECOGNIZED, ItemStatus.PENDING_APPROVAL, ItemStatus.READY]
         assert await s.scalar(select(func.count()).select_from(PriceHistory).where(PriceHistory.item_id == hp)) >= 3
 
-    # re-sending the same archive imports nothing
+    # re-sending the same archive skips the active item, but re-imports the withdrawn one
     ids2, report2 = await intake.import_zip(batch_id, zip_path, settings)
-    assert ids2 == [] and len(report2["duplicates"]) == 2
+    assert len(ids2) == 1 and [d["folder"] for d in report2["duplicates"]] == ["sony headphones"]
     async with session_scope() as s:
-        assert await s.scalar(select(func.count()).select_from(ItemPhoto)) == 3
-        assert await s.scalar(select(func.count()).select_from(Item)) == 2
+        assert await s.scalar(select(func.count()).select_from(ItemPhoto)) == 4
+        assert await s.scalar(select(func.count()).select_from(Item)) == 3
 
     # process_item on an approved item is a no-op (no new approval)
     assert await pipeline.process_item(hp, notifier)

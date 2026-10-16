@@ -78,3 +78,19 @@ def test_decode_windows_cyrillic_name():
     info2 = zipfile.ZipInfo("кресло/1.jpg".encode().decode("cp437"))
     info2.flag_bits = 0
     assert decode_name(info2) == "кресло/1.jpg"
+
+
+def test_storage_problem_detection(monkeypatch):
+    from app.config import get_settings
+
+    s = get_settings().model_copy()
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("RAILWAY_VOLUME_MOUNT_PATH", raising=False)
+    assert s.storage_problem() is None  # local run
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+    assert "Volume" in s.storage_problem()
+    monkeypatch.setenv("RAILWAY_VOLUME_MOUNT_PATH", "/data")
+    s.data_dir = Path("./data")
+    assert "DATA_DIR" in s.storage_problem()
+    s.data_dir = Path("/data")
+    assert s.storage_problem() is None

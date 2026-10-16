@@ -1,5 +1,6 @@
 """Application settings, loaded from environment variables only."""
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -62,6 +63,16 @@ class Settings(BaseSettings):
     @classmethod
     def _strip_at(cls, v: str) -> str:
         return v.lstrip("@").strip()
+
+    def storage_problem(self) -> str | None:
+        """On Railway, files outside the mounted volume vanish on every redeploy."""
+        mount = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+        if os.environ.get("RAILWAY_ENVIRONMENT") and not mount:
+            return "к сервису не подключён Volume — фото пропадут при передеплое. Подключи Volume с mount path /data."
+        if mount and not self.data_dir.resolve().is_relative_to(Path(mount).resolve()):
+            return (f"DATA_DIR={self.data_dir} не на Volume ({mount}) — фото пропадут при передеплое. "
+                    f"Удали переменную DATA_DIR или поставь DATA_DIR={mount}.")
+        return None
 
     @property
     def photos_dir(self) -> Path:

@@ -141,7 +141,11 @@ async def _create_item(batch_id: int, hint: str, files: list[tuple[Path, str]], 
     hashes = [await asyncio.to_thread(sha256_file, p) for p, _ in files]
 
     async with session_scope() as s:
-        dup = await s.scalar(select(ItemPhoto.item_id).where(ItemPhoto.sha256.in_(hashes)).limit(1))
+        # Withdrawn items don't block a re-upload (e.g. after lost photos or "не продаю" by mistake).
+        dup = await s.scalar(
+            select(ItemPhoto.item_id).join(Item, Item.id == ItemPhoto.item_id)
+            .where(ItemPhoto.sha256.in_(hashes), Item.status != ItemStatus.WITHDRAWN).limit(1)
+        )
         if dup:
             report["duplicates"].append({"folder": hint, "existing_item_id": dup})
             return None

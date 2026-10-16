@@ -28,6 +28,9 @@ async def main() -> None:
     await core.client.start(bot_token=settings.bot_token)
     me = await core.client.get_me()
     logging.info("Bot started as @%s", me.username)
+    if problem := settings.storage_problem():
+        logging.error("Storage misconfigured: %s", problem)
+        await core.send(f"⚠️ <b>Настройка хранилища:</b> {problem}")
     core.spawn(recover_interrupted(core))
 
     server = uvicorn.Server(uvicorn.Config(api, host="0.0.0.0", port=settings.port, log_level="warning"))
