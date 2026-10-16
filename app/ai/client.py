@@ -1,14 +1,14 @@
-"""Thin wrapper around the Claude API: structured output via a forced tool, web research, usage logging."""
+"""Thin wrapper around the Claude API: structured JSON outputs, web research, usage logging."""
 
 import base64
-import copy
 import logging
 from decimal import Decimal
 from functools import lru_cache
 from typing import Any
 
 import anthropic
-from pydantic import BaseModel
+from anthropic import transform_schema
+from pydantic import BaseModel, ValidationError
 
 from app.config import get_settings
 from app.db.models import AiUsage
@@ -41,29 +41,39 @@ def image_block(jpeg: bytes) -> dict[str, Any]:
     }
 
 
-def tool_schema(model_cls: type[BaseModel]) -> dict[str, Any]:
-    """Pydantic JSON schema with $refs inlined (keeps the tool schema simple and portable)."""
-    schema = model_cls.model_json_schema()
-    defs = schema.pop("$defs", {})
+def _strip(node: Any) -> Any:
+    """Drops pydantic noise (titles, defaults) that would otherwise leak into descriptions."""
+    if isinstance(node, dict):
+        out = {}
+        for k, v in node.items():
+            if k in ("title", "default"):
+                continue
+            if k in ("properties", "$defs"):  # keys here are names, not schema keywords
+                out[k] = {name: _strip(sub) for name, sub in v.items()}
+            else:
+                out[k] = _strip(v)
+        return out
+    if isinstance(node, list):
+        return [_strip(v) for v in node]
+    return node
 
-    def resolve(node: Any) -> Any:
-        if isinstance(node, dict):
-            if "$ref" in node:
-                return resolve(copy.deepcopy(defs[node["$ref"].split("/")[-1]]))
-            out = {}
-            for k, v in node.items():
-                if k == "title":  # pydantic's auto-generated schema titles are noise
-                    continue
-                if k == "properties":  # keys here are field names (a field may be called "title")
-                    out[k] = {name: resolve(prop) for name, prop in v.items()}
-                else:
-                    out[k] = resolve(v)
-            return out
-        if isinstance(node, list):
-            return [resolve(v) for v in node]
-        return node
 
-    return resolve(schema)
+def _require_all(node: Any) -> Any:
+    """Every property required (nullable ones stay nullable): deterministic output, no optional-param limits."""
+    if isinstance(node, dict):
+        if node.get("type") == "object" and "properties" in node:
+            node["required"] = list(node["properties"])
+        for v in node.values():
+            _require_all(v)
+    elif isinstance(node, list):
+        for v in node:
+            _require_all(v)
+    return node
+
+
+def output_schema(model_cls: type[BaseModel]) -> dict[str, Any]:
+    """JSON schema accepted by structured outputs (additionalProperties: false, no numeric constraints)."""
+    return _require_all(transform_schema(_strip(model_cls.model_json_schema())))
 
 
 async def _log_usage(purpose: str, model: str, item_id: int | None, usage: Any) -> None:
@@ -95,26 +105,25 @@ async def structured[T: BaseModel](
     model: str | None = None,
     max_tokens: int = 4096,
 ) -> T:
-    """Forces Claude to answer by calling a single tool whose input schema is `output`."""
+    """Asks Claude for JSON matching `output` (native structured outputs) and validates it."""
     model = model or get_settings().ai_model
-    tool_name = "submit_result"
     resp = await _client().messages.create(
         model=model,
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": content}],
-        tools=[{
-            "name": tool_name,
-            "description": "Submit the final structured result.",
-            "input_schema": tool_schema(output),
-        }],
-        tool_choice={"type": "tool", "name": tool_name},
+        output_config={"format": {"type": "json_schema", "schema": output_schema(output)}},
     )
     await _log_usage(purpose, model, item_id, resp.usage)
-    for block in resp.content:
-        if block.type == "tool_use" and block.name == tool_name:
-            return output.model_validate(block.input)
-    raise AiError(f"{purpose}: model returned no structured result (stop_reason={resp.stop_reason})")
+    if resp.stop_reason in ("max_tokens", "refusal"):
+        raise AiError(f"{purpose}: no complete result (stop_reason={resp.stop_reason})")
+    text = "".join(b.text for b in resp.content if b.type == "text").strip()
+    if not text:
+        raise AiError(f"{purpose}: empty response (stop_reason={resp.stop_reason})")
+    try:
+        return output.model_validate_json(text)
+    except ValidationError as e:
+        raise AiError(f"{purpose}: invalid JSON from model: {e}") from e
 
 
 async def web_research(

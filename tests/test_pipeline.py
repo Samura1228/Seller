@@ -15,7 +15,7 @@ from sqlalchemy import func, select, text
 
 pytestmark = pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="TEST_DATABASE_URL not set")
 
-from app.ai.schemas import ListingText, MasterTexts, PriceProposal, Question, Recognition  # noqa: E402
+from app.ai.schemas import ListingText, MasterTexts, PriceProposal, Question, Recognition, Spec  # noqa: E402
 from app.bot import texts  # noqa: E402
 from app.bot.handlers.review import parse_price  # noqa: E402
 from app.config import get_settings  # noqa: E402
@@ -76,7 +76,7 @@ def mock_ai(monkeypatch):
             return Recognition(
                 title_ru="Наушники Sony WH-1000XM5" if corrected else "Наушники Sony WH-1000XM4",
                 search_query="sony wh-1000xm4", category="electronics/headphones", brand="Sony",
-                model="WH-1000XM5" if corrected else "WH-1000XM4", specs={"цвет": "чёрный"},
+                model="WH-1000XM5" if corrected else "WH-1000XM4", specs=[Spec(name="цвет", value="чёрный")],
                 condition=Condition.LIKE_NEW, condition_notes_ru="", included=["кейс", "кабель"],
                 quantity=2 if corrected else 1, quantity_confident=corrected, confidence=0.7,
                 questions=[] if corrected else [Question(field="model", question_ru="XM4 или XM5?")],

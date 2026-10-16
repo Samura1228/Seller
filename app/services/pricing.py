@@ -33,12 +33,16 @@ async def research_and_propose(s: AsyncSession, item: Item) -> PriceResearch:
         comps_note = f"(Bazaraki comparables unavailable: {e})"
         log.warning("Comparables failed for item %s: %s", item.id, e)
 
-    research = await web_research(
-        purpose="price_research",
-        system=prompts.load("price_research"),
-        prompt=f"Item:\n{facts}\n\nSearch hint: {query}",
-        item_id=item.id,
-    )
+    try:
+        research = await web_research(
+            purpose="price_research",
+            system=prompts.load("price_research"),
+            prompt=f"Item:\n{facts}\n\nSearch hint: {query}",
+            item_id=item.id,
+        )
+    except Exception as e:  # web search problems must not block pricing: comps + knowledge still work
+        log.warning("Web research failed for item %s: %s", item.id, e)
+        research = f"(web research unavailable: {type(e).__name__})"
 
     comps_text = "\n".join(
         f"[{i}] €{c['price']:.0f} — {c['title']} ({c.get('location') or '?'})" for i, c in enumerate(comps)

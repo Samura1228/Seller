@@ -10,19 +10,24 @@ class Question(BaseModel):
     question_ru: str = Field(description="Short question to the owner, in Russian")
 
 
+class Spec(BaseModel):
+    name: str = Field(description="Spec name in Russian, e.g. 'цвет', 'размер', 'объём памяти'")
+    value: str
+
+
 class Recognition(BaseModel):
     title_ru: str = Field(description="Short item name for the owner's panel, in Russian, brand/model kept in Latin. E.g. 'Наушники Sony WH-1000XM4'")
     search_query: str = Field(description="Short English query to find comparable listings, e.g. 'sony wh-1000xm4'")
     category: str = Field(description="English category path, e.g. 'electronics/headphones', 'home/furniture/chairs'")
     brand: str | None = None
     model: str | None = None
-    specs: dict[str, str] = Field(default_factory=dict, description="Key specs a buyer cares about (size, color, capacity, material...). Only what is visible or certain.")
+    specs: list[Spec] = Field(default_factory=list, description="Key specs a buyer cares about (size, color, capacity, material...). Only what is visible or certain.")
     condition: Condition
     condition_notes_ru: str = Field(description="Honest description of visible wear/defects in Russian. Empty string if none visible.")
     included: list[str] = Field(default_factory=list, description="What is visible in the photos besides the item (box, charger, cables, manuals), in Russian")
-    quantity: int = Field(ge=1, description="How many identical units are shown")
+    quantity: int = Field(description="How many identical units are shown, at least 1")
     quantity_confident: bool
-    confidence: float = Field(ge=0, le=1, description="Overall confidence in identification")
+    confidence: float = Field(description="Overall confidence in identification, from 0 to 1")
     questions: list[Question] = Field(default_factory=list, description="Only what genuinely needs the owner's confirmation; max 3")
 
 

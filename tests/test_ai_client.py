@@ -36,18 +36,19 @@ def mock_api(monkeypatch):
     return requests, responses, usage
 
 
-async def test_structured_forces_tool_and_validates(mock_api):
+async def test_structured_uses_json_output_and_validates(mock_api):
     requests, responses, usage = mock_api
     payload = {"ru": {"title": "Т", "body": "Б"}, "en": {"title": "T", "body": "B"}}
-    responses.append(_msg([{"type": "tool_use", "id": "t1", "name": "submit_result", "input": payload}], "tool_use"))
+    responses.append(_msg([{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}], "end_turn"))
 
     out = await ai.structured(purpose="listing", output=MasterTexts, system="sys", content="card")
 
     assert out.ru.title == "Т" and out.en.body == "B"
     req = requests[0]
-    assert req["tool_choice"] == {"type": "tool", "name": "submit_result"}
-    schema = req["tools"][0]["input_schema"]
-    assert schema["properties"]["ru"]["properties"].keys() == {"title", "body"}
+    assert "tool_choice" not in req and "tools" not in req
+    fmt = req["output_config"]["format"]
+    assert fmt["type"] == "json_schema"
+    assert fmt["schema"]["additionalProperties"] is False
     assert usage == [("listing", 1000, 200, 0)]
 
 
@@ -66,8 +67,11 @@ async def test_web_research_continues_after_pause_turn(mock_api):
     assert [u[3] for u in usage] == [2, 1]
 
 
-async def test_structured_without_tool_call_raises(mock_api):
+async def test_structured_bad_or_truncated_output_raises(mock_api):
     _, responses, _ = mock_api
-    responses.append(_msg([{"type": "text", "text": "no"}], "end_turn"))
-    with pytest.raises(ai.AiError):
+    responses.append(_msg([{"type": "text", "text": "not json"}], "end_turn"))
+    with pytest.raises(ai.AiError, match="invalid JSON"):
+        await ai.structured(purpose="x", output=MasterTexts, system="s", content="c")
+    responses.append(_msg([{"type": "text", "text": '{"ru": {"ti'}], "max_tokens"))
+    with pytest.raises(ai.AiError, match="max_tokens"):
         await ai.structured(purpose="x", output=MasterTexts, system="s", content="c")

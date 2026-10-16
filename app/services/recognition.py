@@ -33,11 +33,11 @@ def apply_recognition(item: Item, r: Recognition) -> None:
     item.category = r.category[:100]
     item.brand = (r.brand or None) and r.brand[:100]
     item.model = (r.model or None) and r.model[:150]
-    item.specs = r.specs
+    item.specs = {sp.name: sp.value for sp in r.specs if sp.name and sp.value}
     item.condition = r.condition
     item.condition_notes = r.condition_notes_ru or None
     item.included = r.included
-    item.quantity_total = r.quantity
+    item.quantity_total = max(1, min(r.quantity, 999))
     questions = [q.model_dump() for q in r.questions]
     if not r.quantity_confident and not any(q["field"] == "quantity" for q in questions):
         questions.append(Question(field="quantity", question_ru=f"Сколько штук? Я вижу {r.quantity}.").model_dump())
