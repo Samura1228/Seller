@@ -350,3 +350,15 @@ async def test_item_card_render(world):
     item, text, buttons = await render_item(core, world.lamp)
     assert "Статус: 💬 есть отклики" in text
     assert [b.type.data for b in buttons[0]] == [f"it:res:{world.lamp}".encode(), f"it:sold:{world.lamp}".encode()]
+
+
+def test_buyer_name_and_offer_hint():
+    b = SimpleNamespace(display_name=".", username=None, tg_user_id=42)
+    assert texts.buyer_name(b) == "без имени (в Telegram подписан как «.»), id 42"
+    assert texts.buyer_name(SimpleNamespace(display_name="Anna", username="anna", tg_user_id=1)) == "«Anna» (@anna)"
+    item = SimpleNamespace(id=2, display_name="Чехлы", price=Decimal(70), min_price=Decimal(58), quantity_total=2,
+                           quantity_left=2, status=ItemStatus.HAS_INQUIRIES)
+    inq = SimpleNamespace(text="за 60?", summary="торг", price_offer=Decimal(60), status=InquiryStatus.NEW, tg_message_id=1)
+    assert "✅ не ниже минимума" in texts.inquiry_card(inq, item, b, None, 2, "ressell_1")
+    inq.price_offer = Decimal(50)
+    assert "⚠️ ниже минимума" in texts.inquiry_card(inq, item, b, None, 2, "ressell_1")

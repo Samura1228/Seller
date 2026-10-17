@@ -296,8 +296,14 @@ ASK_SOLD_PRICE = "💰 За сколько продал <b>{name}</b>? Отпр�
 def buyer_name(buyer) -> str:
     if buyer is None:
         return "неизвестно"
-    name = escape(buyer.display_name or "без имени")
-    return f"{name} (@{escape(buyer.username)})" if buyer.username else name
+    raw = (buyer.display_name or "").strip()
+    meaningful = any(ch.isalnum() for ch in raw)
+    name = f"«{escape(raw)}»" if meaningful else "без имени"
+    if buyer.username:
+        return f"{name} (@{escape(buyer.username)})"
+    if raw and not meaningful:
+        name += f" (в Telegram подписан как «{escape(raw)}»)"
+    return f"{name}, id {buyer.tg_user_id}"
 
 
 def inquiry_card(inq, item, buyer, chat, count: int, seller: str) -> str:
@@ -319,7 +325,10 @@ def inquiry_card(inq, item, buyer, chat, count: int, seller: str) -> str:
     if inq.summary:
         gist.append(escape(inq.summary))
     if inq.price_offer:
-        gist.append(f"предлагает {fmt_eur(inq.price_offer)}")
+        offer = f"предлагает {fmt_eur(inq.price_offer)}"
+        if item is not None and item.min_price is not None:
+            offer += " ✅ не ниже минимума" if inq.price_offer >= item.min_price else " ⚠️ ниже минимума"
+        gist.append(offer)
     if gist:
         lines.append("Суть: " + " · ".join(gist))
     if item:
