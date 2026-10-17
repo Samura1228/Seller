@@ -184,6 +184,9 @@ async def withdraw(item_id: int) -> None:
     async with session_scope() as s:
         item = await recognition.load_item(s, item_id)
         await set_status(s, item, ItemStatus.WITHDRAWN, Actor.ME, "not selling")
-        approval = await ensure_review_approval(s, item)
-        approval.status = ApprovalStatus.REJECTED
-        approval.resolved_at = datetime.now(UTC)
+        await ensure_review_approval(s, item)
+        # close every open card of this item (review, chat previews); queued posts are skipped by status
+        for a in await s.scalars(select(Approval).where(
+            Approval.item_id == item_id, Approval.status.in_([ApprovalStatus.PENDING, ApprovalStatus.SKIPPED])
+        )):
+            a.status, a.resolved_at = ApprovalStatus.REJECTED, datetime.now(UTC)

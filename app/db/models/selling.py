@@ -30,6 +30,13 @@ class Chat(TimestampMixin, Base):
     username: Mapped[str | None] = mapped_column(sa.String(100))
     invite_link: Mapped[str | None] = mapped_column(sa.String(255))
     title: Mapped[str | None] = mapped_column(sa.String(255))
+    kind: Mapped[str | None] = mapped_column(sa.String(20))  # group | channel | forum
+    members_count: Mapped[int | None]
+    slowmode_seconds: Mapped[int | None]
+    can_post: Mapped[bool] = mapped_column(default=True)
+    can_send_photos: Mapped[bool] = mapped_column(default=True)
+    check_note: Mapped[str | None] = mapped_column(sa.Text)  # why we can't post, etc.
+    checked_at: Mapped[datetime | None]
     language: Mapped[ChatLanguage | None] = mapped_column(str_enum(ChatLanguage))
     language_override: Mapped[ChatLanguage | None] = mapped_column(str_enum(ChatLanguage))
     rules_raw: Mapped[str | None] = mapped_column(sa.Text)
@@ -47,10 +54,12 @@ class Publication(TimestampMixin, Base):
     """One post of one item in one chat. Drafts are the per-chat previews."""
 
     __tablename__ = "publications"
+    __table_args__ = (sa.UniqueConstraint("item_id", "chat_id", "cycle_no", name="uq_publications_item_chat_cycle"),)
 
     item_id: Mapped[int] = mapped_column(sa.ForeignKey("items.id", ondelete="CASCADE"), index=True)
     chat_id: Mapped[int] = mapped_column(sa.ForeignKey("chats.id", ondelete="CASCADE"), index=True)
-    text: Mapped[str] = mapped_column(sa.Text)
+    text: Mapped[str] = mapped_column(sa.Text)  # AI part (title + body); price/contact footer is added at post time
+    hashtags: Mapped[list[str]] = mapped_column(JSONB, default=list)
     language: Mapped[Language] = mapped_column(str_enum(Language))
     status: Mapped[PublicationStatus] = mapped_column(
         str_enum(PublicationStatus), default=PublicationStatus.DRAFT, index=True

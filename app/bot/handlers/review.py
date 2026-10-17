@@ -11,7 +11,7 @@ from app.bot.core import BotCore, PendingInput
 from app.db.enums import Actor, ApprovalKind, ApprovalStatus, ItemStatus
 from app.db.models import Approval, Item
 from app.db.session import session_scope
-from app.services import pipeline
+from app.services import pipeline, versions
 from app.services.items import set_status
 
 PRICE_RE = re.compile(r"^\s*€?\s*(\d{1,6}(?:[.,]\d{1,2})?)\s*€?\s*(?:[/\\\s-]+\s*€?\s*(\d{1,6}(?:[.,]\d{1,2})?)\s*€?)?\s*$")
@@ -63,6 +63,7 @@ def register(core: BotCore) -> None:
                 await event.edit(verdict, parse_mode="html", buttons=None)
                 await event.answer("Утверждено")
                 await core.show_next()
+                core.make_versions(item_id=item_id)  # per-chat versions for active chats (no-op if none)
 
             case "qty":
                 await event.edit(buttons=keyboards.quantity(item_id))
@@ -122,6 +123,7 @@ def register(core: BotCore) -> None:
                         return
                     await set_status(s, item, ItemStatus.PENDING_APPROVAL, Actor.ME, "reopened for edits")
                     s.add(Approval(item_id=item_id, kind=ApprovalKind.ITEM_REVIEW))
+                await versions.drop_unposted(item_id)
                 await event.edit(buttons=None)
                 await event.answer()
                 await core.show_card(item_id, with_photos=False)
@@ -180,6 +182,13 @@ def register(core: BotCore) -> None:
             core.pending = None
             await pipeline.set_quantity(item_id, int(text))
             await core.show_card(item_id, with_photos=False)
+
+        elif pending.kind == "chat_rules":
+            from app.bot.handlers.chats import apply_rules_edit
+
+            core.pending = None
+            started = apply_rules_edit(core, item_id, text)
+            await event.reply("⏳ Применяю, карточка чата обновится ниже…" if started else texts.BUSY)
 
         elif pending.kind in ("fix", "edit"):
             core.pending = None

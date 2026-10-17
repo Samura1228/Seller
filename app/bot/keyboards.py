@@ -34,3 +34,35 @@ def failed(item_id: int) -> list[list[Button]]:
 
 def reopen(item_id: int) -> list[list[Button]]:
     return [[Button.inline("↩️ Вернуть на правку", f"rv:reopen:{item_id}".encode())]]
+
+
+def chat(c) -> list[list[Button]]:
+    i = c.id
+    rows = []
+    if c.can_post and not c.is_active:
+        rows.append([Button.inline("✅ Подтвердить и публиковать", f"ch:ok:{i}".encode())])
+    rows.append([Button.inline("✏️ Поправить правила", f"ch:edit:{i}".encode()),
+                 Button.inline("🌐 Язык", f"ch:lang:{i}".encode())])
+    rows.append([Button.inline("🔄 Перепроверить чат", f"ch:recheck:{i}".encode())])
+    if c.is_active:
+        rows.append([Button.inline("✅ Готово", f"ch:done:{i}".encode()),
+                     Button.inline("⏸ Не публиковать сюда", f"ch:off:{i}".encode())])
+    else:
+        rows.append([Button.inline("⏭ Позже", f"ch:later:{i}".encode()),
+                     Button.inline("🚫 Не публиковать сюда", f"ch:off:{i}".encode())])
+    return rows
+
+
+def previews(item_id: int) -> list[list[Button]]:
+    i = item_id
+    return [
+        [Button.inline("✅ Одобрить все версии", f"pv:ok:{i}".encode())],
+        [Button.inline("🔄 Переписать", f"pv:regen:{i}".encode()), Button.inline("⏭ Позже", f"pv:later:{i}".encode())],
+        [Button.inline("🗑 Не публиковать", f"pv:drop:{i}".encode())],
+    ]
+
+
+def publisher(enabled: bool) -> list[list[Button]]:
+    toggle = Button.inline("⏸ Выключить", b"pb:off") if enabled else Button.inline("▶️ Включить", b"pb:on")
+    return [[toggle, Button.inline("🔄 Обновить", b"pb:refresh")],
+            [Button.inline("📤 Опубликовать следующий сейчас", b"pb:now")]]

@@ -33,3 +33,11 @@ def footer(item: Item, lang: Language, seller_username: str) -> str:
 
 def render_post(item: Item, text: ItemText, seller_username: str) -> str:
     return f"{text.title}\n\n{text.body.strip()}\n\n{footer(item, text.language, seller_username)}"
+
+
+def render_publication(item: Item, text: str, hashtags: list[str], lang: Language, seller_username: str) -> str:
+    """Final per-chat post: AI-written part + deterministic footer + chat hashtags."""
+    post = f"{text.strip()}\n\n{footer(item, lang, seller_username)}"
+    if hashtags:
+        post += "\n\n" + " ".join(hashtags)
+    return post

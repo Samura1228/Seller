@@ -50,3 +50,28 @@ class ListingText(BaseModel):
 class MasterTexts(BaseModel):
     ru: ListingText
     en: ListingText
+
+
+class ChatRules(BaseModel):
+    rules_found: bool = Field(description="True if the description or pinned messages contain posting rules")
+    posting_allowed: bool | None = Field(description="Can private sellers post sale ads here? null if unclear")
+    max_posts_per_day: int | None = Field(description="Max sale posts per user per day; null if not stated")
+    min_interval_hours: int | None = Field(description="Min hours between posts of one user (e.g. 'once in 3 days' = 72); null if not stated")
+    same_item_repeat_hours: int | None = Field(description="Min hours before re-posting the same item; null if not stated")
+    requires_price: bool = Field(description="Price must be stated in the post")
+    required_hashtags: list[str] = Field(description="Hashtags every post must contain, with #")
+    allowed_hashtags: list[str] = Field(description="Hashtags/categories the chat offers to choose from, with #")
+    max_photos: int | None = Field(description="Max photos per post; null if not stated")
+    max_text_length: int | None = Field(description="Max characters per post; null if not stated")
+    allowed_days: list[str] = Field(description="Weekdays when sale posts are allowed: mon,tue,wed,thu,fri,sat,sun. Empty = any day")
+    format_notes_ru: str = Field(description="Format requirements in Russian (e.g. 'указывать район', 'без ссылок'). Empty if none")
+    forbidden_ru: str = Field(description="What is forbidden, in Russian. Empty if nothing relevant")
+    summary_ru: str = Field(description="1-2 lines in Russian: the rules that matter for a private seller")
+    confidence: float = Field(description="0..1, how sure you are the rules were read correctly")
+    questions_ru: list[str] = Field(description="What the owner should clarify, in Russian; max 3")
+
+
+class ChatVersion(BaseModel):
+    title: str = Field(description="Title line")
+    body: str = Field(description="Value lines, condition, what's included. WITHOUT price, quantity, location, delivery, contact or hashtags")
+    hashtags: list[str] = Field(description="Hashtags for this chat, with #. Empty if the chat uses none")

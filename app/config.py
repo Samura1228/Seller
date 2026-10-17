@@ -50,6 +50,20 @@ class Settings(BaseSettings):
     photo_ai_max_side: int = 1568
     photo_thumb_side: int = 480
 
+    # Userbot (selling account). Generate with scripts/make_session.py
+    userbot_session: str | None = None
+
+    # Publisher (anti-ban defaults; all times in Cyprus local time)
+    timezone: str = "Asia/Nicosia"
+    publish_window_start: int = 9     # hour, inclusive
+    publish_window_end: int = 21      # hour, exclusive
+    publish_max_per_hour: int = 3
+    publish_max_per_day: int = 15
+    publish_gap_min_minutes: int = 12
+    publish_gap_max_minutes: int = 35
+    chat_default_posts_per_day: int = 1  # when a chat's rules don't say
+    publish_tick_seconds: int = 60
+
     # HTTP
     port: int = 8080
     log_level: str = "INFO"
@@ -58,6 +72,11 @@ class Settings(BaseSettings):
     @classmethod
     def _async_driver(cls, v: str) -> str:
         return normalize_db_url(v)
+
+    @field_validator("userbot_session")
+    @classmethod
+    def _empty_none(cls, v: str | None) -> str | None:
+        return v.strip() if v and v.strip() else None
 
     @field_validator("seller_username")
     @classmethod
