@@ -66,7 +66,7 @@ def register(core: BotCore) -> None:
         if photos:
             await core.client.send_file(core.admin, photos)
         text += f"\n\nСтатус: {texts.STATUS_RU[item.status]}"
-        buttons = keyboards.reopen(item_id) if item.status == ItemStatus.READY else None
+        buttons = keyboards.item_actions(item)
         await core.send(text, buttons=buttons)
 
     @core.client.on(cmd(r"^/retry\s+(\d+)"))

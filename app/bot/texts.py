@@ -43,7 +43,11 @@ HELP = (
     "/addchat @chat1 @chat2 — добавить чаты (аккаунт для продаж уже должен в них состоять)\n"
     "/chats — список чатов · /chat 3 — карточка чата\n"
     "/publisher — включить/выключить публикации, статус очереди\n"
-    "/versions 12 — заново подготовить версии постов для вещи"
+    "/versions 12 — заново подготовить версии постов для вещи\n\n"
+    "<b>Отклики и продажи</b>\n"
+    "Отклики из лички и ответы на посты приходят сюда автоматически, с кнопками «Бронь» и «Продано».\n"
+    "/inquiries — последние отклики\n"
+    "/item 12 — бронь, продажа или снятие с продажи вручную (посты в чатах удалятся сами)"
 )
 
 ASK_PRICE = "💶 Отправь цену для <b>{name}</b>:\n<code>120</code> — только цена (минимум посчитаю сам)\n<code>120/100</code> — цена / минимум"
@@ -280,3 +284,88 @@ def publisher_status(st, settings) -> str:
         f"до {settings.publish_max_per_hour} в час.</i>"
     )
     return "\n".join(lines)
+
+
+# ---------- stage 3: inquiries & sales ----------
+
+INTENT_RU = {"question": "вопрос", "wants_to_buy": "хочет купить", "price_offer": "предлагает цену",
+             "reserve": "просит отложить", "other": ""}
+ASK_SOLD_PRICE = "💰 За сколько продал <b>{name}</b>? Отправь сумму, например <code>65</code>."
+
+
+def buyer_name(buyer) -> str:
+    if buyer is None:
+        return "неизвестно"
+    name = escape(buyer.display_name or "без имени")
+    return f"{name} (@{escape(buyer.username)})" if buyer.username else name
+
+
+def inquiry_card(inq, item, buyer, chat, count: int, seller: str) -> str:
+    from app.userbot.sender import message_link
+
+    if item:
+        head = f"💬 <b>Отклик · #{item.id} {escape(item.display_name)}</b>"
+    else:
+        head = "💬 <b>Сообщение · не понял, о какой вещи</b>"
+    lines = [head, f"От: {buyer_name(buyer)}"]
+    if chat is not None:
+        link = message_link(chat.tg_chat_id, chat.username, inq.tg_message_id)
+        where = f'<a href="{escape(link)}">{chat_name(chat)}</a>' if link else chat_name(chat)
+        lines.append(f"Где: ответ на пост в {where}")
+    else:
+        lines.append(f"Где: личка @{escape(seller)}")
+    lines.append(f"<blockquote>{escape((inq.text or '')[:700])}</blockquote>")
+    gist = []
+    if inq.summary:
+        gist.append(escape(inq.summary))
+    if inq.price_offer:
+        gist.append(f"предлагает {fmt_eur(inq.price_offer)}")
+    if gist:
+        lines.append("Суть: " + " · ".join(gist))
+    if item:
+        price = f"💶 {fmt_eur(item.price)} · минимум <b>{fmt_eur(item.min_price)}</b>"
+        if item.quantity_total > 1:
+            price += f" · осталось {item.quantity_left} из {item.quantity_total}"
+        lines.append(price)
+        lines.append(f"Статус: {STATUS_RU[item.status]} · откликов по вещи: {count}")
+        if item.status == ItemStatus.SOLD:
+            lines.append("⚠️ Вещь уже продана — можно ответить, что её нет.")
+    if buyer is not None and not buyer.username:
+        lines.append(f"<i>У покупателя нет @username — ответь ему из лички @{escape(seller)}.</i>")
+    if inq.status.value == "handled":
+        lines.append("\n✔️ Закрыт")
+    return "\n".join(lines)
+
+
+def sale_done(item, res, posts) -> str:
+    if res.sold_out:
+        lines = [f"💰 <b>#{item.id} {escape(item.display_name)}</b> продано за {fmt_eur(res.final_price)}."]
+        if posts.done or posts.failed:
+            lines.append(f"Посты удалены: {posts.done} из {posts.done + len(posts.failed)}.")
+    else:
+        lines = [f"💰 <b>#{item.id} {escape(item.display_name)}</b>: продана 1 шт. за {fmt_eur(res.final_price)}, "
+                 f"осталось {res.left}."]
+        if posts.done or posts.failed:
+            lines.append(f"Количество в постах обновлено: {posts.done} из {posts.done + len(posts.failed)}.")
+    if posts.failed:
+        lines.append("⚠️ Не получилось: " + escape("; ".join(posts.failed)))
+    for url in posts.bazaraki_to_remove:
+        lines.append(f"🧹 Не забудь снять объявление: {escape(url)}")
+    return "\n".join(lines)
+
+
+def withdrawn_done(item, posts) -> str:
+    lines = [f"🗑 <b>#{item.id} {escape(item.display_name)}</b> снята с продажи."]
+    if posts.done or posts.failed:
+        lines.append(f"Посты удалены: {posts.done} из {posts.done + len(posts.failed)}.")
+    if posts.failed:
+        lines.append("⚠️ Не получилось: " + escape("; ".join(posts.failed)))
+    for url in posts.bazaraki_to_remove:
+        lines.append(f"🧹 Не забудь снять объявление: {escape(url)}")
+    return "\n".join(lines)
+
+
+def inquiry_line(inq, item, buyer) -> str:
+    what = f"#{item.id} {escape(item.display_name)}" if item else "❓ не определено"
+    who = f"@{escape(buyer.username)}" if buyer and buyer.username else escape((buyer.display_name if buyer else None) or "?")
+    return f"{inq.created_at:%d.%m %H:%M} · {who} → {what}"

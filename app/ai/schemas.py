@@ -75,3 +75,12 @@ class ChatVersion(BaseModel):
     title: str = Field(description="Title line")
     body: str = Field(description="Value lines, condition, what's included. WITHOUT price, quantity, location, delivery, contact or hashtags")
     hashtags: list[str] = Field(description="Hashtags for this chat, with #. Empty if the chat uses none")
+
+
+class InquiryMatch(BaseModel):
+    sales_related: bool = Field(description="False for spam, ads, greetings with no buying interest, unrelated chat")
+    item_id: int | None = Field(description="id from the item list the buyer is asking about; null if unclear")
+    confidence: float = Field(description="0..1 confidence in item_id")
+    intent: str = Field(description="One of: question, wants_to_buy, price_offer, reserve, other")
+    price_offer_eur: int | None = Field(description="Price the buyer offers, if any")
+    summary_ru: str = Field(description="What the buyer wants, in Russian, max 100 characters")

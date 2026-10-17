@@ -202,7 +202,7 @@ class Publisher:
             item_name, chat_title = item.display_name, chat.title or chat.username or str(chat.id)
 
         try:
-            ids = await self.sender(self.client, target[0], target[1], text, photos, target[2])
+            ids, text_id = await self.sender(self.client, target[0], target[1], text, photos, target[2])
         except errors.FloodWaitError as e:
             until = now + timedelta(seconds=e.seconds + 60)
             await settings_store.put_time(K_PAUSED, until)
@@ -251,6 +251,7 @@ class Publisher:
         async with session_scope() as s:
             p = await s.get(Publication, pub_id)
             p.status, p.posted_at, p.tg_message_ids, p.error = PublicationStatus.POSTED, now, ids, None
+            p.text_message_id = text_id
             p.attempts += 1
             chat = await s.get(Chat, p.chat_id)
             chat.last_post_at = now

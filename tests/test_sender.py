@@ -33,13 +33,13 @@ async def test_send_variants(tmp_path):
         photos.append(p)
 
     c = FakeClient()
-    assert await send_post(c, -100, "chat", "short", photos, True) == list(range(1, 11))  # album capped at 10
+    assert await send_post(c, -100, "chat", "short", photos, True) == (list(range(1, 11)), 1)  # album capped at 10
     assert c.log[0][0] == "file" and c.log[0][3] == "short" and len(c.log[0][2]) == 10
 
     c = FakeClient()
     ids = await send_post(c, -100, "chat", "x" * 1500, photos[:2], True)  # too long for a caption
-    assert ids == [1, 2, 3] and c.log[0][3] is None and c.log[1] == ("text", "peer:-100", "x" * 1500, 1)
+    assert ids == ([1, 2, 3], 3) and c.log[0][3] is None and c.log[1] == ("text", "peer:-100", "x" * 1500, 1)
 
     c = FakeClient(entity_ok=False)  # not in the dialog cache -> resolved by username
-    assert await send_post(c, -100, "chat", "t", photos[:1], False) == [1]
+    assert await send_post(c, -100, "chat", "t", photos[:1], False) == ([1], 1)
     assert c.log == [("text", "peer:@chat", "t", None)]

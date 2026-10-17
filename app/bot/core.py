@@ -6,7 +6,7 @@ from collections.abc import Coroutine, Hashable
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import case, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import selectinload
 from telethon import TelegramClient
 from telethon.errors import MessageNotModifiedError
@@ -14,9 +14,9 @@ from telethon.errors import MessageNotModifiedError
 from app.bot import keyboards, texts
 from app.config import Settings
 from app.db.enums import ApprovalKind, ApprovalStatus, BatchStatus, ItemStatus
-from app.db.models import Approval, Chat, IntakeBatch, Item
+from app.db.models import Approval, Buyer, Chat, Inquiry, IntakeBatch, Item, Publication
 from app.db.session import session_scope
-from app.services import pipeline, pricing, recognition, versions
+from app.services import inquiries, pipeline, pricing, recognition, versions
 
 log = logging.getLogger(__name__)
 
@@ -27,8 +27,9 @@ OPEN = (ApprovalStatus.PENDING, ApprovalStatus.SKIPPED)
 
 @dataclass
 class PendingInput:
-    kind: str  # price | fix | edit | qty | chat_rules
+    kind: str  # price | fix | edit | qty | chat_rules | sold_price
     item_id: int  # item id, or chat id for chat_rules
+    extra: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -260,6 +261,38 @@ class BotCore:
             item = await s.get(Item, item_id)
         if item:
             await self.send(texts.failed(item, error), buttons=keyboards.failed(item_id))
+
+    # ---------- listener.InquiryNotifier ----------
+
+    async def render_inquiry(self, inquiry_id: int) -> tuple[str, Any]:
+        async with session_scope() as s:
+            inq = await s.get(Inquiry, inquiry_id)
+            item = await s.get(Item, inq.item_id) if inq.item_id else None
+            buyer = await s.get(Buyer, inq.buyer_id) if inq.buyer_id else None
+            pub = await s.get(Publication, inq.publication_id) if inq.publication_id else None
+            chat = await s.get(Chat, pub.chat_id) if pub else None
+            count = await s.scalar(select(func.count()).select_from(Inquiry).where(Inquiry.item_id == inq.item_id)) \
+                if inq.item_id else 0
+        candidates = [] if item else await inquiries.candidate_items()
+        text = texts.inquiry_card(inq, item, buyer, chat, count, self.settings.seller_username)
+        return text, keyboards.inquiry(inq, item, buyer, chat, candidates)
+
+    async def inquiry_new(self, inquiry_id: int, is_new: bool) -> None:
+        text, buttons = await self.render_inquiry(inquiry_id)
+        msg = await self.send(text, buttons=buttons)
+        async with session_scope() as s:
+            inq = await s.get(Inquiry, inquiry_id)
+            old = inq.notify_message_id
+            inq.notify_message_id = msg.id
+        if old and not is_new:
+            self.spawn(self.edit(old, "Обновлено ниже ⬇️"))
+
+    async def refresh_inquiry(self, inquiry_id: int) -> None:
+        async with session_scope() as s:
+            msg_id = (await s.get(Inquiry, inquiry_id)).notify_message_id
+        if msg_id:
+            text, buttons = await self.render_inquiry(inquiry_id)
+            await self.edit(msg_id, text, buttons=buttons)
 
     # ---------- publisher.PublisherNotifier ----------
 

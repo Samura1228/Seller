@@ -67,6 +67,7 @@ class Publication(TimestampMixin, Base):
     scheduled_at: Mapped[datetime | None] = mapped_column(index=True)
     posted_at: Mapped[datetime | None]
     tg_message_ids: Mapped[list[int]] = mapped_column(ARRAY(sa.BigInteger), default=list)  # album => several
+    text_message_id: Mapped[int | None] = mapped_column(sa.BigInteger)  # the message holding the text (caption)
     cycle_no: Mapped[int] = mapped_column(default=1)
     deleted_at: Mapped[datetime | None]
     error: Mapped[str | None] = mapped_column(sa.Text)
@@ -92,6 +93,9 @@ class Inquiry(TimestampMixin, Base):
     tg_chat_id: Mapped[int | None] = mapped_column(sa.BigInteger)
     tg_message_id: Mapped[int | None] = mapped_column(sa.BigInteger)
     text: Mapped[str | None] = mapped_column(sa.Text)
+    intent: Mapped[str | None] = mapped_column(sa.String(30))
+    summary: Mapped[str | None] = mapped_column(sa.Text)
+    price_offer: Mapped[Decimal | None]
     match_method: Mapped[MatchMethod | None] = mapped_column(str_enum(MatchMethod))
     match_confidence: Mapped[float | None]
     status: Mapped[InquiryStatus] = mapped_column(str_enum(InquiryStatus), default=InquiryStatus.NEW, index=True)

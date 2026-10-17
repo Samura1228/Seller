@@ -109,7 +109,7 @@ class FakeSender:
             raise e
         self.calls.append((tg_chat_id, text, [p.name for p in photos], with_photos))
         self._id += 1
-        return [self._id]
+        return [self._id], self._id
 
 
 @pytest.fixture

@@ -66,3 +66,62 @@ def publisher(enabled: bool) -> list[list[Button]]:
     toggle = Button.inline("⏸ Выключить", b"pb:off") if enabled else Button.inline("▶️ Включить", b"pb:on")
     return [[toggle, Button.inline("🔄 Обновить", b"pb:refresh")],
             [Button.inline("📤 Опубликовать следующий сейчас", b"pb:now")]]
+
+
+# ---------- stage 3: inquiries & sales ----------
+
+def _item_sale_row(prefix: str, ref: int, item) -> list[Button]:
+    from app.db.enums import ItemStatus
+
+    if item.status == ItemStatus.RESERVED:
+        return [Button.inline("🔓 Снять бронь", f"it:unres:{item.id}".encode()),
+                Button.inline("💰 Продано", f"{prefix}:sold:{ref}".encode())]
+    return [Button.inline("🔒 Бронь", f"{prefix}:res:{ref}".encode()),
+            Button.inline("💰 Продано", f"{prefix}:sold:{ref}".encode())]
+
+
+def inquiry(inq, item, buyer, chat, candidates) -> list[list[Button]]:
+    from app.db.enums import InquiryStatus, ItemStatus
+    from app.userbot.sender import message_link
+
+    rows: list[list[Button]] = []
+    links = []
+    if buyer is not None and buyer.username:
+        links.append(Button.url("✉️ Открыть чат", f"https://t.me/{buyer.username}"))
+    if chat is not None and (link := message_link(chat.tg_chat_id, chat.username, inq.tg_message_id)):
+        links.append(Button.url("💬 К ответу в чате", link))
+    if item is None:
+        if inq.status != InquiryStatus.HANDLED:
+            for c in candidates:
+                rows.append([Button.inline(f"#{c.id} {c.display_name}"[:60], f"iq:set:{inq.id}:{c.id}".encode())])
+            rows.append([Button.inline("🚫 Не про продажу", f"iq:spam:{inq.id}".encode())])
+        return [*rows, links] if links else rows
+    if item.status in (ItemStatus.READY, ItemStatus.PUBLISHED, ItemStatus.HAS_INQUIRIES, ItemStatus.RESERVED):
+        rows.append(_item_sale_row("iq", inq.id, item))
+        rows.append([Button.inline("🔁 Это другая вещь", f"iq:pick:{inq.id}".encode())])
+    if links:
+        rows.append(links)
+    return rows
+
+
+def sold_price(prefix: str, ref: int, price_label: str) -> list[list[Button]]:
+    return [[Button.inline(f"💰 За {price_label}", f"{prefix}:soldp:{ref}".encode()),
+             Button.inline("✏️ Другая цена", f"{prefix}:soldx:{ref}".encode())],
+            [Button.inline("← Назад", f"{prefix}:back:{ref}".encode())]]
+
+
+def item_actions(item) -> list[list[Button]] | None:
+    from app.db.enums import ItemStatus
+
+    rows = []
+    if item.status in (ItemStatus.READY, ItemStatus.PUBLISHED, ItemStatus.HAS_INQUIRIES, ItemStatus.RESERVED):
+        rows.append(_item_sale_row("it", item.id, item))
+        rows.append([Button.inline("🗑 Снять с продажи", f"it:wd:{item.id}".encode())])
+    if item.status == ItemStatus.READY:
+        rows.append([Button.inline("↩️ Вернуть на правку", f"rv:reopen:{item.id}".encode())])
+    return rows or None
+
+
+def confirm_withdraw(item_id: int) -> list[list[Button]]:
+    return [[Button.inline("Да, снять и удалить посты", f"it:wdyes:{item_id}".encode()),
+             Button.inline("Отмена", f"it:back:{item_id}".encode())]]

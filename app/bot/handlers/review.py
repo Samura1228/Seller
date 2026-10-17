@@ -183,6 +183,11 @@ def register(core: BotCore) -> None:
             await pipeline.set_quantity(item_id, int(text))
             await core.show_card(item_id, with_photos=False)
 
+        elif pending.kind == "sold_price":
+            from app.bot.handlers.sales import handle_sold_price_input
+
+            await handle_sold_price_input(core, pending, text, event)
+
         elif pending.kind == "chat_rules":
             from app.bot.handlers.chats import apply_rules_edit
 
