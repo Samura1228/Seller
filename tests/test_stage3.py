@@ -299,3 +299,54 @@ async def test_listener_events(world, ai):
     await asyncio.sleep(0.1)
     assert "[фото]" in ai[-1]  # a photo-only DM still reaches matching, login codes never do
     assert all("Login code" not in c for c in ai)
+
+
+async def test_inquiry_card_reserve_unreserve_buttons(world):
+    """Regression: «Снять бронь» on an inquiry card must keep the inquiry card (fresh status, chat link)."""
+    import re
+
+    from app.bot.core import BotCore
+    from app.bot.handlers import sales as sales_handlers
+    from tests.test_pipeline import FakeTg
+
+    core = BotCore(get_settings())
+    sales_handlers.register(core)
+    handlers = {cb.__name__: cb for cb, _ in core.client.list_event_handlers()}
+    core.client = FakeTg()
+
+    async with session_scope() as s:
+        inq_id = await s.scalar(select(Inquiry.id).where(Inquiry.item_id == world.lamp).order_by(Inquiry.id))
+    await core.inquiry_new(inq_id, True)
+
+    class Ev:
+        def __init__(self, data: bytes):
+            self.data_match = re.match(rb"^iq:(\w+):(\d+)(?::(\d+))?$", data)
+            self.answers, self.edits = [], []
+
+        async def answer(self, *a, **k):
+            self.answers.append(a)
+
+        async def edit(self, *a, **k):
+            self.edits.append((a, k))
+
+    await handlers["on_inquiry"](Ev(f"iq:res:{inq_id}".encode()))
+    card, buttons = core.client.edits[-1][1], core.client.edits[-1][2]
+    assert "бронь" in card
+    datas = [getattr(b.type, "data", None) for row in buttons for b in row]
+    assert f"iq:unres:{inq_id}".encode() in datas
+
+    await handlers["on_inquiry"](Ev(f"iq:unres:{inq_id}".encode()))
+    card, buttons = core.client.edits[-1][1], core.client.edits[-1][2]
+    assert "Статус: 💬 есть отклики" in card
+    datas = [getattr(b.type, "data", None) for row in buttons for b in row]
+    assert f"iq:res:{inq_id}".encode() in datas and f"iq:pick:{inq_id}".encode() in datas
+
+
+async def test_item_card_render(world):
+    from app.bot.core import BotCore
+    from app.bot.handlers.sales import render_item
+
+    core = BotCore(get_settings())
+    item, text, buttons = await render_item(core, world.lamp)
+    assert "Статус: 💬 есть отклики" in text
+    assert [b.type.data for b in buttons[0]] == [f"it:res:{world.lamp}".encode(), f"it:sold:{world.lamp}".encode()]

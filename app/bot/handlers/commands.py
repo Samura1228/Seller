@@ -6,7 +6,7 @@ from app.bot.core import BotCore
 from app.db.enums import ItemStatus
 from app.db.models import AiUsage, Item
 from app.db.session import session_scope
-from app.services import pipeline, pricing, recognition
+from app.services import pipeline
 
 
 def register(core: BotCore) -> None:
@@ -58,15 +58,12 @@ def register(core: BotCore) -> None:
         if item.pipeline_error and item.status in (ItemStatus.NEW, ItemStatus.RECOGNIZED):
             await core.send(texts.failed(item, item.pipeline_error), buttons=keyboards.failed(item_id))
             return
-        async with session_scope() as s:
-            item = await recognition.load_item(s, item_id)
-            research = await pricing.latest_research(s, item_id)
-            text = texts.review_card(item, research, core.settings.seller_username)
+        from app.bot.handlers.sales import render_item
+
+        item, text, buttons = await render_item(core, item_id)
         photos = [str(core.settings.data_dir / p.path) for p in item.photos[:10]]
         if photos:
             await core.client.send_file(core.admin, photos)
-        text += f"\n\nСтатус: {texts.STATUS_RU[item.status]}"
-        buttons = keyboards.item_actions(item)
         await core.send(text, buttons=buttons)
 
     @core.client.on(cmd(r"^/retry\s+(\d+)"))

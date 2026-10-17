@@ -74,7 +74,7 @@ def _item_sale_row(prefix: str, ref: int, item) -> list[Button]:
     from app.db.enums import ItemStatus
 
     if item.status == ItemStatus.RESERVED:
-        return [Button.inline("🔓 Снять бронь", f"it:unres:{item.id}".encode()),
+        return [Button.inline("🔓 Снять бронь", f"{prefix}:unres:{ref}".encode()),
                 Button.inline("💰 Продано", f"{prefix}:sold:{ref}".encode())]
     return [Button.inline("🔒 Бронь", f"{prefix}:res:{ref}".encode()),
             Button.inline("💰 Продано", f"{prefix}:sold:{ref}".encode())]

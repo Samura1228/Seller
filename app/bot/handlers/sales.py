@@ -10,7 +10,7 @@ from app.bot import keyboards, texts
 from app.bot.core import BotCore, PendingInput
 from app.db.models import Buyer, Inquiry, Item
 from app.db.session import session_scope
-from app.services import inquiries, pipeline, sales
+from app.services import inquiries, pipeline, pricing, recognition, sales
 from app.services.listing import fmt_eur
 
 
@@ -34,6 +34,20 @@ async def _item_and_card(core: BotCore, item_id: int) -> Item | None:
         return await s.get(Item, item_id)
 
 
+async def render_item(core: BotCore, item_id: int):
+    """Text + buttons of the /item card (status line included), so edits never leave a stale status."""
+    async with session_scope() as s:
+        item = await recognition.load_item(s, item_id)
+        research = await pricing.latest_research(s, item_id)
+        text = texts.review_card(item, research, core.settings.seller_username)
+    return item, f"{text}\n\nСтатус: {texts.STATUS_RU[item.status]}", keyboards.item_actions(item)
+
+
+async def _refresh_item_card(core: BotCore, event, item_id: int) -> None:
+    _, text, buttons = await render_item(core, item_id)
+    await event.edit(text, parse_mode="html", buttons=buttons, link_preview=False)
+
+
 def register(core: BotCore) -> None:
     def admin_only(e) -> bool:
         return e.sender_id == core.admin
@@ -51,7 +65,7 @@ def register(core: BotCore) -> None:
         if inq is None:
             await event.answer(texts.NOT_FOUND, alert=True)
             return
-        if item is None and action in ("res", "sold", "soldp", "soldx"):
+        if item is None and action in ("res", "unres", "sold", "soldp", "soldx"):
             await event.answer("Сначала выбери, о какой вещи речь", alert=True)
             return
 
@@ -63,6 +77,14 @@ def register(core: BotCore) -> None:
                     await event.answer(str(e), alert=True)
                     return
                 await event.answer("Забронировано")
+                await core.refresh_inquiry(inq_id)
+            case "unres":
+                try:
+                    await sales.unreserve(item.id)
+                except sales.SaleError as e:
+                    await event.answer(str(e), alert=True)
+                    return
+                await event.answer("Бронь снята, вещь снова в продаже")
                 await core.refresh_inquiry(inq_id)
             case "sold":
                 await event.edit(buttons=keyboards.sold_price("iq", inq_id, fmt_eur(item.price)))
@@ -113,7 +135,7 @@ def register(core: BotCore) -> None:
                     await event.answer(str(e), alert=True)
                     return
                 await event.answer("Забронировано")
-                await event.edit(buttons=keyboards.item_actions(await _item_and_card(core, item_id)))
+                await _refresh_item_card(core, event, item_id)
             case "unres":
                 try:
                     await sales.unreserve(item_id)
@@ -121,20 +143,20 @@ def register(core: BotCore) -> None:
                     await event.answer(str(e), alert=True)
                     return
                 await event.answer("Бронь снята, вещь снова в продаже")
-                await event.edit(buttons=keyboards.item_actions(await _item_and_card(core, item_id)))
+                await _refresh_item_card(core, event, item_id)
             case "sold":
                 await event.edit(buttons=keyboards.sold_price("it", item_id, fmt_eur(item.price)))
                 await event.answer()
             case "soldp":
                 await event.answer("Записываю продажу…")
                 await do_sale(core, item_id, None, None)
-                await event.edit(buttons=keyboards.item_actions(await _item_and_card(core, item_id)))
+                await _refresh_item_card(core, event, item_id)
             case "soldx":
                 core.pending = PendingInput(kind="sold_price", item_id=item_id)
                 await core.send(texts.ASK_SOLD_PRICE.format(name=texts.escape(item.display_name)) + "\n\n/cancel — отмена")
                 await event.answer()
             case "back":
-                await event.edit(buttons=keyboards.item_actions(item))
+                await _refresh_item_card(core, event, item_id)
                 await event.answer()
             case "wd":
                 await event.edit(buttons=keyboards.confirm_withdraw(item_id))
