@@ -5,13 +5,14 @@ import re
 
 from sqlalchemy import select
 from telethon import events
+from telethon.extensions import html
 
 from app.bot import keyboards, texts
 from app.bot.core import BotCore, PendingInput
 from app.db.enums import ApprovalKind
-from app.db.models import Chat, Item
+from app.db.models import Chat, Item, Publication
 from app.db.session import session_scope
-from app.services import chat_discovery, versions
+from app.services import chat_discovery, post_watch, versions
 from app.services import chats as chat_service
 
 MAX_REFS = 10
@@ -292,6 +293,62 @@ def register(core: BotCore) -> None:
                 return
         await core.send(f"⏳ Готовлю версии постов для #{item_id}…")
         core.make_versions(item_id=item_id)
+
+    # ---------- where the posts are ----------
+
+    @core.client.on(cmd(r"^/posts(?:[_ ]+(\d+))?\s*$"))
+    async def on_posts(event) -> None:
+        item_id = event.pattern_match.group(1)
+        if item_id is None:
+            await core.send(texts.posts_summary(await post_watch.overview()))
+            return
+        rows = await post_watch.overview(int(item_id))
+        if not rows:
+            async with session_scope() as s:
+                item = await s.get(Item, int(item_id))
+            if item is None:
+                await core.send(texts.NOT_FOUND)
+                return
+            rows = [(item, [])]
+        await core.send(texts.posts_detail(*rows[0]))
+
+    @core.client.on(cmd(r"^/checkposts\b"))
+    async def on_checkposts(event) -> None:
+        if core.post_watcher is None:
+            await core.send(texts.NEED_USERBOT)
+            return
+        await core.send("🔎 Проверяю, на месте ли посты во всех чатах…")
+
+        async def go() -> None:
+            res = await core.post_watcher.check_all()
+            lines = [f"Проверил постов: {res.checked}. "
+                     + (f"Удалено в чатах: {len(res.removals)} — подробности выше." if res.removals else "Все на месте ✅")]
+            lines += [f"⚠️ {texts.escape(e)}" for e in res.errors]
+            await core.send("\n".join(lines))
+
+        core.spawn(go())
+
+    @core.client.on(events.CallbackQuery(data=re.compile(rb"^pw:(\w+):(\d+)$"), func=admin_only))
+    async def on_post_removed_button(event) -> None:
+        action, pub_id = event.data_match.group(1).decode(), int(event.data_match.group(2))
+        msg = await event.get_message()
+        current = html.unparse(msg.message, msg.entities)  # keep the card's formatting when appending a line
+        match action:
+            case "again":
+                ok, note = await post_watch.repost(pub_id)
+                if not ok:
+                    await event.answer(note, alert=True)
+                    return
+                await event.edit(current + f"\n\n🔁 {texts.escape(note)}", parse_mode="html", buttons=None)
+            case "off":
+                async with session_scope() as s:
+                    chat_id = (await s.get(Publication, pub_id)).chat_id
+                await chat_service.deactivate(chat_id)
+                await event.edit(current + f"\n\n⏸ Чат выключен, туда больше не публикую. Вернуть: /chat {chat_id}",
+                                 parse_mode="html", buttons=None)
+            case _:
+                await event.edit(buttons=None)
+        await event.answer()
 
     # ---------- chat card ----------
 

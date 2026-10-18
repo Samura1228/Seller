@@ -51,6 +51,7 @@ class BotCore:
         self.busy: set[Hashable] = set()
         self.userbot: TelegramClient | None = None
         self.publisher = None  # app.services.publisher.Publisher, set in main when the userbot is configured
+        self.post_watcher = None  # app.services.post_watch.PostWatcher, same
         self.scan: dict | None = None  # /scanchats selection state
         self._queue_lock = asyncio.Lock()
         self._tasks: set[asyncio.Task] = set()
@@ -302,6 +303,11 @@ class BotCore:
 
     async def publisher_alert(self, text: str) -> None:
         await self.send(text)
+
+    # ---------- post_watch.WatchNotifier ----------
+
+    async def post_removed(self, removal) -> None:
+        await self.send(texts.post_removed(removal), buttons=keyboards.post_removed(removal))
 
 
 async def recover_interrupted(core: BotCore) -> None:

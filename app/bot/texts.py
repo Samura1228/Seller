@@ -1,6 +1,8 @@
 """All user-facing bot strings (Russian UI) and card rendering. HTML parse mode."""
 
+from datetime import UTC, datetime
 from html import escape
+from zoneinfo import ZoneInfo
 
 from app.db.enums import Condition, ItemStatus, Language
 from app.db.models import Item, PriceResearch
@@ -46,7 +48,9 @@ HELP = (
     "/chats — список чатов · /chat 3 — карточка чата\n"
     "/recheckchats — перепроверить чаты, куда раньше нельзя было писать\n"
     "/publisher — включить/выключить публикации, статус очереди\n"
-    "/versions 12 — заново подготовить версии постов для вещи\n\n"
+    "/versions 12 — заново подготовить версии постов для вещи\n"
+    "/posts — где объявления висят, где в очереди, где их удалили · /posts 12 — по вещи, со ссылками\n"
+    "/checkposts — проверить прямо сейчас, не удалили ли посты (сам бот проверяет каждые 2 часа)\n\n"
     "<b>Отклики и продажи</b>\n"
     "Отклики из лички и ответы на посты приходят сюда автоматически, с кнопками «Бронь» и «Продано».\n"
     "/inquiries — последние отклики\n"
@@ -272,6 +276,74 @@ def previews_card(item, rows, seller: str, *, busy: bool = False) -> tuple[list[
 def posted(item_id: int, item_name: str, chat_title: str, link: str | None) -> str:
     where = f'<a href="{escape(link)}">{escape(chat_title)}</a>' if link else escape(chat_title)
     return f"📢 Опубликовано: <b>#{item_id} {escape(item_name)}</b> → {where}"
+
+
+def _cy(dt) -> str:
+    return dt.astimezone(ZoneInfo("Asia/Nicosia")).strftime("%d.%m %H:%M") if dt else "?"
+
+
+def post_removed(r) -> str:
+    lines = [f"🗑 <b>В «{escape(r.chat_title)}» удалили пост</b> «#{r.item_id} {escape(r.item_name)}»",
+             f"Опубликован {_cy(r.posted_at)}, заметил пропажу {_cy(datetime.now(UTC))}."]
+    if r.chat_problem:
+        lines.append(f"\n⚠️ Сейчас в чате: {escape(r.chat_problem)}")
+    if r.clues:
+        lines.append("\n<b>Возможная причина</b> — сообщения про наш пост:")
+        lines += [f"• <i>{escape(c)}</i>" for c in r.clues]
+    else:
+        lines.append("\nОбъяснений в чате не нашёл: скорее всего, удалил админ или антиспам-бот молча. "
+                     "Перечитай правила чата или спроси админа.")
+    if r.removed_in_chat >= 2:
+        lines.append(f"\n❗️ В этом чате удаляют уже {r.removed_in_chat}-й пост за 30 дней — "
+                     "лучше выключить чат, иначе можно получить бан.")
+    lines.append("\nЕсли пост удалил ты сам — просто нажми «👌 Понятно».")
+    return "\n".join(lines)
+
+
+POST_STATE = {
+    "posted": "✅", "approved": "⏳", "queued": "⏳", "draft": "📝", "removed_by_chat": "🗑", "failed": "⚠️",
+}
+
+
+def posts_summary(rows) -> str:
+    if not rows:
+        return "Пока ничего не опубликовано и не стоит в очереди."
+    lines = ["<b>Объявления по вещам</b>", "✅ висит · ⏳ в очереди · 📝 ждёт одобрения версий · 🗑 удалили в чате · ⚠️ не отправился\n"]
+    for item, pubs in rows:
+        counts: dict[str, int] = {}
+        for pub, _ in pubs:
+            mark = POST_STATE[pub.status.value]
+            counts[mark] = counts.get(mark, 0) + 1
+        stat = " · ".join(f"{m} {counts[m]}" for m in ("✅", "⏳", "📝", "🗑", "⚠️") if m in counts)
+        lines.append(f"<b>#{item.id}</b> {escape(item.display_name)} — {stat}  /posts_{item.id}")
+    lines.append("\n<i>Подробно со ссылками: /posts N. Проверить посты прямо сейчас: /checkposts</i>")
+    return "\n".join(lines)
+
+
+def posts_detail(item, pubs) -> str:
+    from app.userbot.sender import message_link
+
+    lines = [f"<b>#{item.id} {escape(item.display_name)}</b> — где объявления\n"]
+    if not pubs:
+        lines.append("Нигде: версий для чатов пока нет.")
+    for pub, chat in pubs:
+        name = escape(chat_name(chat))
+        st = pub.status.value
+        if st == "posted":
+            link = message_link(chat.tg_chat_id, chat.username, pub.tg_message_ids[0], chat.forum_topic_id) \
+                if pub.tg_message_ids else None
+            where = f'<a href="{escape(link)}">{name}</a>' if link else name
+            lines.append(f"✅ {where} — с {_cy(pub.posted_at)}")
+        elif st in ("approved", "queued"):
+            off = "" if chat.is_active else " (чат выключен — не уйдёт)"
+            lines.append(f"⏳ {name} — в очереди{off}")
+        elif st == "draft":
+            lines.append(f"📝 {name} — версия ждёт твоего одобрения")
+        elif st == "removed_by_chat":
+            lines.append(f"🗑 {name} — удалили {_cy(pub.deleted_at)}")
+        else:
+            lines.append(f"⚠️ {name} — не отправился: {escape(pub.error or '?')[:100]}")
+    return "\n".join(lines)
 
 
 def publisher_status(st, settings) -> str:

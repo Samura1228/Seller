@@ -138,3 +138,12 @@ def topics(chat) -> list[list[Button]]:
         rows.append([Button.inline(f"{mark}{t['title']}"[:60], f"ct:{chat.id}:{t['id']}".encode())])
     rows.append([Button.inline("← Назад", f"ch:card:{chat.id}".encode())])
     return rows
+
+
+def post_removed(r) -> list[list[Button]]:
+    rows = []
+    if r.can_repost:
+        rows.append([Button.inline("🔁 Опубликовать снова", f"pw:again:{r.publication_id}".encode())])
+    rows.append([Button.inline("⏸ Не публиковать в этот чат", f"pw:off:{r.publication_id}".encode()),
+                 Button.inline("👌 Понятно", f"pw:ok:{r.publication_id}".encode())])
+    return rows

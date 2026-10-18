@@ -12,6 +12,7 @@ from app.bot.core import BotCore, recover_interrupted
 from app.bot.handlers import chats, commands, intake, review, sales
 from app.config import get_settings
 from app.db.lock import acquire_runner_lock
+from app.services.post_watch import PostWatcher
 from app.services.publisher import Publisher
 from app.userbot.client import UserbotUnavailable, start_userbot
 from app.userbot.listener import InquiryListener
@@ -81,6 +82,8 @@ async def main() -> None:
         core.spawn(_scan_unread(listener))
         core.publisher = Publisher(settings, core.userbot, core)
         tasks.append(asyncio.create_task(core.publisher.run(), name="publisher"))
+        core.post_watcher = PostWatcher(settings, core.userbot, core)
+        tasks.append(asyncio.create_task(core.post_watcher.run(), name="post_watcher"))
         tasks.append(asyncio.create_task(core.userbot.run_until_disconnected(), name="userbot"))
 
     tasks.append(asyncio.create_task(core.client.run_until_disconnected(), name="bot"))

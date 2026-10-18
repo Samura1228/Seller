@@ -91,8 +91,9 @@ class PublicationStatus(StrEnum):
     QUEUED = "queued"
     POSTED = "posted"
     FAILED = "failed"
-    DELETED = "deleted"
+    DELETED = "deleted"                  # we deleted it (sold / withdrawn)
     MARKED_SOLD = "marked_sold"
+    REMOVED_BY_CHAT = "removed_by_chat"  # admins / a bot of the chat deleted it
 
 
 class InquirySource(StrEnum):

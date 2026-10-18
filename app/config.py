@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     publish_gap_max_minutes: int = 35
     chat_default_posts_per_day: int = 1  # when a chat's rules don't say
     publish_tick_seconds: int = 60
+    post_check_interval_minutes: int = 120  # how often to check that our posts still exist in chats
+    post_check_first_delay_seconds: int = 300
 
     # HTTP
     port: int = 8080
