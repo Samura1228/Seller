@@ -22,9 +22,11 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class AddResult:
-    ref: str
+    ref: str | int
     chat_id: int | None = None
     error: str | None = None
+    note: str | None = None
+    auto_rules: bool = False  # rules were read confidently and posting is allowed
 
 
 def effective_language(chat: Chat) -> ChatLanguage:
@@ -59,12 +61,21 @@ async def parse_rules(snap: ChatSnapshot, chat_id: int | None = None) -> ChatRul
                             content=content[:30000], max_tokens=2000)
 
 
-async def add_chat(client: TelegramClient, ref: str) -> AddResult:
-    """Inspects a chat, parses rules, stores it (inactive) and queues a rules card for the owner."""
+async def add_chat(client: TelegramClient, ref: str | int) -> AddResult:
+    """Inspects a chat, parses rules, stores it (inactive) and queues a rules card for the owner.
+    A channel where only admins post is replaced by its discussion group, if it has one."""
     try:
         snap = await inspect_chat(client, ref)
     except ChatCheckError as e:
         return AddResult(ref=ref, error=str(e))
+    note = None
+    if snap.kind == "channel" and not snap.can_post and snap.linked_chat_id:
+        try:
+            linked = await inspect_chat(client, snap.linked_chat_id)
+        except (ChatCheckError, ValueError) as e:
+            return AddResult(ref=ref, error=f"канал, а его чат-обсуждение недоступен ({e})")
+        note = f"канал «{snap.title}» → добавил его чат «{linked.title}»"
+        snap = linked
 
     rules = await parse_rules(snap)
     async with session_scope() as s:
@@ -77,7 +88,8 @@ async def add_chat(client: TelegramClient, ref: str) -> AddResult:
         chat.rules_status = RulesStatus.NEEDS_ME if needs_owner(rules, snap) else RulesStatus.AUTO
         await s.flush()
         await ensure_rules_approval(s, chat.id)
-        return AddResult(ref=ref, chat_id=chat.id)
+        auto = chat.rules_status == RulesStatus.AUTO and chat.can_post and rules.posting_allowed is True
+        return AddResult(ref=ref, chat_id=chat.id, note=note, auto_rules=auto)
 
 
 def apply_snapshot(chat: Chat, snap: ChatSnapshot) -> None:
@@ -122,6 +134,11 @@ async def edit_rules(chat_id: int, correction: str) -> None:
         chat.rules = rules.model_dump(mode="json")
         chat.notes = "\n".join(filter(None, [chat.notes, correction.strip()]))
         chat.rules_status = RulesStatus.CONFIRMED
+
+
+async def known_tg_ids() -> set[int]:
+    async with session_scope() as s:
+        return {i for i in await s.scalars(select(Chat.tg_chat_id)) if i is not None}
 
 
 async def confirm(chat_id: int) -> Chat:

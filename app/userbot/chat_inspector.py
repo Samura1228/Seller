@@ -28,6 +28,7 @@ class ChatSnapshot:
     can_post: bool = True
     can_send_photos: bool = True
     problems: list[str] = field(default_factory=list)
+    linked_chat_id: int | None = None  # a channel's discussion group (marked peer id)
 
     def rules_source(self) -> str:
         parts = []
@@ -74,8 +75,8 @@ def _banned(rights: types.ChatBannedRights | None, attr: str) -> bool:
     return bool(rights and getattr(rights, attr, False))
 
 
-async def inspect_chat(client: TelegramClient, ref: str, recent_limit: int = 80) -> ChatSnapshot:
-    target = normalize_ref(ref)
+async def inspect_chat(client: TelegramClient, ref: str | int, recent_limit: int = 80) -> ChatSnapshot:
+    target = ref if isinstance(ref, int) else normalize_ref(ref)
     try:
         entity = await client.get_entity(target)
     except (ValueError, errors.UsernameNotOccupiedError, errors.UsernameInvalidError, errors.InviteHashExpiredError) as e:
@@ -91,12 +92,15 @@ async def inspect_chat(client: TelegramClient, ref: str, recent_limit: int = 80)
     slowmode = None
     members = None
     about = ""
+    linked = None
 
     if isinstance(entity, types.Channel):
         full = await client(functions.channels.GetFullChannelRequest(entity))
         about = full.full_chat.about or ""
         slowmode = full.full_chat.slowmode_seconds or None
         members = full.full_chat.participants_count
+        if entity.broadcast and getattr(full.full_chat, "linked_chat_id", None):
+            linked = utils.get_peer_id(types.PeerChannel(full.full_chat.linked_chat_id))
         kind = "forum" if entity.forum else ("channel" if entity.broadcast else "group")
         if entity.left:
             can_post = False
@@ -158,4 +162,5 @@ async def inspect_chat(client: TelegramClient, ref: str, recent_limit: int = 80)
         can_post=can_post,
         can_send_photos=can_photos,
         problems=problems,
+        linked_chat_id=linked,
     )

@@ -1,5 +1,6 @@
 """Chats (add, rules card), per-chat previews and publisher controls."""
 
+import asyncio
 import re
 
 from sqlalchemy import select
@@ -10,10 +11,39 @@ from app.bot.core import BotCore, PendingInput
 from app.db.enums import ApprovalKind
 from app.db.models import Chat, Item
 from app.db.session import session_scope
+from app.services import chat_discovery, versions
 from app.services import chats as chat_service
-from app.services import versions
 
 MAX_REFS = 10
+MAX_OTHERS_SHOWN = 20
+ADD_PAUSE_SECONDS = 3  # between chat inspections, to stay far from Telegram flood limits
+
+
+def _scan_text(found, selected) -> str:
+    markets = sum(1 for f in found if f.is_marketplace)
+    lines = [f"🔎 Групп и каналов у аккаунта для продаж (ещё не добавленных): <b>{len(found)}</b>, "
+             f"из них похожи на барахолки: <b>{markets}</b>.",
+             "Отмеченные ✅ добавлю. Нажми на чат, чтобы снять или поставить галочку.",
+             "📢 — канал: писать туда могут только админы, поэтому добавлю его чат-обсуждение, если он есть."]
+    if not found:
+        lines = ["🔎 Новых групп и каналов не нашёл: всё, где состоит аккаунт для продаж, уже добавлено."]
+    return "\n".join(lines)
+
+
+def _scan_buttons(found, selected):
+    from telethon import Button
+
+    shown = [i for i, f in enumerate(found) if f.is_marketplace]
+    shown += [i for i, f in enumerate(found) if not f.is_marketplace][:MAX_OTHERS_SHOWN]
+    rows = []
+    for i in shown:
+        f = found[i]
+        mark = "✅" if i in selected else "▫️"
+        icon = " 📢" if f.kind == "channel" else ""
+        rows.append([Button.inline(f"{mark} {f.title[:40]}{icon}", f"sc:t:{i}".encode())])
+    rows.append([Button.inline(f"➕ Добавить выбранные ({len(selected)})", b"sc:add:0"),
+                 Button.inline("Отмена", b"sc:x:0")])
+    return rows
 
 
 def apply_rules_edit(core: BotCore, chat_id: int, correction: str) -> bool:
@@ -74,6 +104,94 @@ def register(core: BotCore) -> None:
             await core.show_next()
 
         core.spawn(go())
+
+    @core.client.on(cmd(r"^/scanchats\b"))
+    async def on_scanchats(event) -> None:
+        if await need_userbot():
+            return
+        status = await core.send("🔎 Смотрю, в каких группах и каналах состоит аккаунт для продаж…")
+        try:
+            found = await chat_discovery.list_groups(core.userbot, await chat_service.known_tg_ids())
+            found = await chat_discovery.classify(found)
+        except Exception as e:  # noqa: BLE001
+            await core.edit(status.id, f"⚠️ Не получилось: <code>{texts.escape(str(e)[:200])}</code>")
+            return
+        selected = {i for i, f in enumerate(found) if f.is_marketplace}
+        core.scan = {"found": found, "selected": selected, "auto": []}
+        await core.edit(status.id, _scan_text(found, selected), buttons=_scan_buttons(found, selected) if found else None)
+
+    @core.client.on(events.CallbackQuery(data=re.compile(rb"^sc:(\w+):(\d+)$"), func=admin_only))
+    async def on_scan_button(event) -> None:
+        action = event.data_match.group(1).decode()
+        idx = int(event.data_match.group(2))
+        scan = getattr(core, "scan", None)
+        if not scan:
+            await event.answer("Список устарел, запусти /scanchats ещё раз", alert=True)
+            return
+        found, selected = scan["found"], scan["selected"]
+        if action == "t":
+            selected.symmetric_difference_update({idx})
+            await event.edit(_scan_text(found, selected), parse_mode="html", buttons=_scan_buttons(found, selected))
+            await event.answer()
+        elif action == "x":
+            core.scan = None
+            await event.edit("Отменено.", buttons=None)
+            await event.answer()
+        elif action == "add":
+            picked = [found[i] for i in sorted(selected)]
+            if not picked:
+                await event.answer("Ничего не выбрано", alert=True)
+                return
+            await event.edit(f"⏳ Добавляю чаты: 0/{len(picked)}…", buttons=None)
+            await event.answer()
+            msg_id = event.message_id
+
+            async def go() -> None:
+                lines, auto = [], []
+                for n, f in enumerate(picked, 1):
+                    ref = f"@{f.username}" if f.username else f.tg_chat_id
+                    try:
+                        res = await chat_service.add_chat(core.userbot, ref)
+                    except Exception as e:  # noqa: BLE001 - reported to the owner
+                        lines.append(f"❌ {texts.escape(f.title)}: {texts.escape(type(e).__name__)}")
+                        continue
+                    if res.error:
+                        lines.append(f"❌ {texts.escape(f.title)}: {texts.escape(res.error)}")
+                    else:
+                        mark = "✅" if res.auto_rules else "❓"
+                        lines.append(f"{mark} {texts.escape(f.title)} → чат #{res.chat_id}"
+                                     + (f" ({texts.escape(res.note)})" if res.note else ""))
+                        if res.auto_rules:
+                            auto.append(res.chat_id)
+                    await core.edit(msg_id, f"⏳ Добавляю чаты: {n}/{len(picked)}…")
+                    await asyncio.sleep(ADD_PAUSE_SECONDS)
+                core.scan = {"found": [], "selected": set(), "auto": auto}
+                summary = ("<b>Добавление чатов</b>\n" + "\n".join(lines) +
+                           "\n\n✅ — правила понятны, ❓ — нужна твоя проверка (карточки придут по одной).")
+                from telethon import Button
+                buttons = [[Button.inline(f"✅ Включить все с понятными правилами ({len(auto)})", b"sc:auto:0")]] \
+                    if auto else None
+                await core.edit(msg_id, summary[:4000], buttons=buttons)
+                await core.show_next()
+
+            core.spawn(go())
+        elif action == "auto":
+            ids = list(scan.get("auto") or [])
+            done = 0
+            for chat_id in ids:
+                try:
+                    await chat_service.confirm(chat_id)
+                    done += 1
+                    core.make_versions(chat_id=chat_id)
+                except Exception:  # noqa: BLE001 - e.g. the chat turned out to be read-only
+                    continue
+            scan["auto"] = []
+            await event.answer(f"Включено чатов: {done}")
+            await event.edit(buttons=None)
+            await core.send(f"🟢 Включил чатов: {done}. Для одобренных вещей готовлю версии постов — карточки придут сюда.")
+            await core.show_next()
+        else:
+            await event.answer()
 
     @core.client.on(cmd(r"^/chats\b"))
     async def on_chats(event) -> None:

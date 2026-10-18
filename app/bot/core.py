@@ -51,6 +51,7 @@ class BotCore:
         self.busy: set[Hashable] = set()
         self.userbot: TelegramClient | None = None
         self.publisher = None  # app.services.publisher.Publisher, set in main when the userbot is configured
+        self.scan: dict | None = None  # /scanchats selection state
         self._queue_lock = asyncio.Lock()
         self._tasks: set[asyncio.Task] = set()
 

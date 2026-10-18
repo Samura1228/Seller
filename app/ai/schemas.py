@@ -84,3 +84,13 @@ class InquiryMatch(BaseModel):
     intent: str = Field(description="One of: question, wants_to_buy, price_offer, reserve, other")
     price_offer_eur: int | None = Field(description="Price the buyer offers, if any")
     summary_ru: str = Field(description="What the buyer wants, in Russian, max 100 characters")
+
+
+class MarketplaceVerdict(BaseModel):
+    id: int = Field(description="The number in square brackets")
+    is_marketplace: bool = Field(description="True for buy/sell/flea-market/giveaway chats where private people post items for sale")
+    reason_ru: str = Field(description="2-6 words in Russian, e.g. 'барахолка Лимасола', 'новости, не барахолка'")
+
+
+class MarketplaceList(BaseModel):
+    verdicts: list[MarketplaceVerdict]
