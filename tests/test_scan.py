@@ -169,3 +169,70 @@ async def test_scan_buttons_flow(monkeypatch):
     async with session_scope() as s:
         active = list(await s.scalars(select(Chat).where(Chat.is_active.is_(True))))
     assert [c.title for c in active] == ["@bar_a"] and made == [active[0].id]
+
+
+async def test_folder_listing():
+    from telethon import functions
+
+    ents = [channel(31, "Лимасол | Кипр - Барахолка", "lim_bar"), channel(32, "Бізнес куточок на Кіпрі", "biz_ua"),
+            channel(33, "Никосия Барахолка", "nic_bar"), channel(34, "Excluded", "ex")]
+
+    def peer(i):
+        return types.InputPeerChannel(channel_id=i, access_hash=1)
+
+    limassol = types.DialogFilter(id=2, title=types.TextWithEntities(text="Лимассол", entities=[]), pinned_peers=[peer(31)],
+                                  include_peers=[peer(32), peer(34)], exclude_peers=[peer(34)])
+    nicosia = types.DialogFilter(id=3, title=types.TextWithEntities(text="Никосия", entities=[]), pinned_peers=[],
+                                 include_peers=[peer(33)], exclude_peers=[])
+
+    class Client(DialogsClient):
+        async def __call__(self, request):
+            assert isinstance(request, functions.messages.GetDialogFiltersRequest)
+            return types.messages.DialogFilters(filters=[types.DialogFilterDefault(), limassol, nicosia])
+
+    c = Client(ents)
+    found = await chat_discovery.list_folder(c, "лимассол", set())
+    assert [f.title for f in found] == ["Лимасол | Кипр - Барахолка", "Бізнес куточок на Кіпрі"]
+    assert await chat_discovery.list_folder(c, "Лимассол", {-1000000000031}) is not None
+    assert [f.title for f in await chat_discovery.list_folder(c, "Лимассол", {-1000000000031})] == ["Бізнес куточок на Кіпрі"]
+    assert await chat_discovery.list_folder(c, "Пафос", set()) is None
+    assert await chat_discovery.folder_names(c) == ["Лимассол", "Никосия"]
+
+
+async def test_scanchats_folder_command(monkeypatch):
+
+    from app.bot.core import BotCore
+    from app.bot.handlers import chats as chat_handlers
+    from tests.test_pipeline import FakeTg
+
+    ents = [channel(41, "Лимасол Барахолка", "lim2"), channel(42, "Бізнес куточок", "biz2")]
+    folder = types.DialogFilter(id=2, title=types.TextWithEntities(text="Лимассол", entities=[]), pinned_peers=[],
+                                include_peers=[types.InputPeerChannel(channel_id=41, access_hash=1),
+                                               types.InputPeerChannel(channel_id=42, access_hash=1)], exclude_peers=[])
+
+    class Client(DialogsClient):
+        async def __call__(self, request):
+            return types.messages.DialogFilters(filters=[folder])
+
+    async def structured(*, content=None, **_):
+        return MarketplaceList(verdicts=[MarketplaceVerdict(id=0, is_marketplace=True, reason_ru="барахолка"),
+                                         MarketplaceVerdict(id=1, is_marketplace=False, reason_ru="бизнес-услуги")])
+
+    monkeypatch.setattr(chat_discovery, "structured", structured)
+    core = BotCore(get_settings())
+    chat_handlers.register(core)
+    handler = next((cb, ev) for cb, ev in core.client.list_event_handlers() if cb.__name__ == "on_scanchats")
+    core.client = FakeTg()
+    core.userbot = Client(ents)
+
+    m = re.match(r"^/scanchats(?:\s+(.+))?$", "/scanchats Лимассол")
+    await handler[0](SimpleNamespace(pattern_match=m))
+    text, buttons = core.client.edits[-1][1], core.client.edits[-1][2]
+    assert "В папке «Лимассол» новых чатов: <b>2</b>" in text and "🤔" in text
+    labels = [b.text for row in buttons for b in row]
+    assert labels[0].startswith("✅ Лимасол Барахолка") and labels[1].startswith("✅ Бізнес куточок") and labels[1].endswith("🤔")
+    assert core.scan["selected"] == {0, 1}
+
+    m = re.match(r"^/scanchats(?:\s+(.+))?$", "/scanchats Пафос")
+    await handler[0](SimpleNamespace(pattern_match=m))
+    assert "не нашёл" in core.client.edits[-1][1] and "«Лимассол»" in core.client.edits[-1][1]

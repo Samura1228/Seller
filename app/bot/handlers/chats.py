@@ -19,28 +19,38 @@ MAX_OTHERS_SHOWN = 20
 ADD_PAUSE_SECONDS = 3  # between chat inspections, to stay far from Telegram flood limits
 
 
-def _scan_text(found, selected) -> str:
+def _scan_text(found, selected, folder: str = "") -> str:
     markets = sum(1 for f in found if f.is_marketplace)
-    lines = [f"🔎 Групп и каналов у аккаунта для продаж (ещё не добавленных): <b>{len(found)}</b>, "
-             f"из них похожи на барахолки: <b>{markets}</b>.",
+    if folder:
+        head = f"🔎 В папке «{texts.escape(folder)}» новых чатов: <b>{len(found)}</b>."
+        if markets < len(found):
+            head += f"\n🤔 — AI сомневается, что это барахолка ({len(found) - markets} шт.), проверь их."
+    else:
+        head = (f"🔎 Групп и каналов у аккаунта для продаж (ещё не добавленных): <b>{len(found)}</b>, "
+                f"из них похожи на барахолки: <b>{markets}</b>.\nПодсказка: <code>/scanchats Лимассол</code> — только чаты из папки.")
+    lines = [head,
              "Отмеченные ✅ добавлю. Нажми на чат, чтобы снять или поставить галочку.",
              "📢 — канал: писать туда могут только админы, поэтому добавлю его чат-обсуждение, если он есть."]
     if not found:
-        lines = ["🔎 Новых групп и каналов не нашёл: всё, где состоит аккаунт для продаж, уже добавлено."]
+        lines = ["🔎 Новых чатов не нашёл: всё уже добавлено."]
     return "\n".join(lines)
 
 
-def _scan_buttons(found, selected):
+def _scan_buttons(found, selected, folder: str = ""):
     from telethon import Button
 
-    shown = [i for i, f in enumerate(found) if f.is_marketplace]
-    shown += [i for i, f in enumerate(found) if not f.is_marketplace][:MAX_OTHERS_SHOWN]
+    if folder:
+        shown = list(range(len(found)))
+    else:
+        shown = [i for i, f in enumerate(found) if f.is_marketplace]
+        shown += [i for i, f in enumerate(found) if not f.is_marketplace][:MAX_OTHERS_SHOWN]
     rows = []
     for i in shown:
         f = found[i]
         mark = "✅" if i in selected else "▫️"
         icon = " 📢" if f.kind == "channel" else ""
-        rows.append([Button.inline(f"{mark} {f.title[:40]}{icon}", f"sc:t:{i}".encode())])
+        doubt = " 🤔" if folder and not f.is_marketplace else ""
+        rows.append([Button.inline(f"{mark} {f.title[:38]}{icon}{doubt}", f"sc:t:{i}".encode())])
     rows.append([Button.inline(f"➕ Добавить выбранные ({len(selected)})", b"sc:add:0"),
                  Button.inline("Отмена", b"sc:x:0")])
     return rows
@@ -105,20 +115,33 @@ def register(core: BotCore) -> None:
 
         core.spawn(go())
 
-    @core.client.on(cmd(r"^/scanchats\b"))
+    @core.client.on(cmd(r"^/scanchats(?:\s+(.+))?$"))
     async def on_scanchats(event) -> None:
         if await need_userbot():
             return
-        status = await core.send("🔎 Смотрю, в каких группах и каналах состоит аккаунт для продаж…")
+        folder = (event.pattern_match.group(1) or "").strip()
+        where = f"в папке «{texts.escape(folder)}»" if folder else "в группах и каналах аккаунта для продаж"
+        status = await core.send(f"🔎 Смотрю чаты {where}…")
         try:
-            found = await chat_discovery.list_groups(core.userbot, await chat_service.known_tg_ids())
+            known = await chat_service.known_tg_ids()
+            if folder:
+                found = await chat_discovery.list_folder(core.userbot, folder, known)
+                if found is None:
+                    names = await chat_discovery.folder_names(core.userbot)
+                    await core.edit(status.id, f"Папку «{texts.escape(folder)}» не нашёл. Папки аккаунта: "
+                                    + (", ".join(f"«{texts.escape(n)}»" for n in names) or "нет папок"))
+                    return
+            else:
+                found = await chat_discovery.list_groups(core.userbot, known)
             found = await chat_discovery.classify(found)
         except Exception as e:  # noqa: BLE001
             await core.edit(status.id, f"⚠️ Не получилось: <code>{texts.escape(str(e)[:200])}</code>")
             return
-        selected = {i for i, f in enumerate(found) if f.is_marketplace}
-        core.scan = {"found": found, "selected": selected, "auto": []}
-        await core.edit(status.id, _scan_text(found, selected), buttons=_scan_buttons(found, selected) if found else None)
+        # From a folder the owner picked everything on purpose: preselect all, only flag doubtful ones.
+        selected = set(range(len(found))) if folder else {i for i, f in enumerate(found) if f.is_marketplace}
+        core.scan = {"found": found, "selected": selected, "auto": [], "folder": folder}
+        await core.edit(status.id, _scan_text(found, selected, folder), buttons=_scan_buttons(found, selected, folder)
+                        if found else None)
 
     @core.client.on(events.CallbackQuery(data=re.compile(rb"^sc:(\w+):(\d+)$"), func=admin_only))
     async def on_scan_button(event) -> None:
@@ -130,8 +153,10 @@ def register(core: BotCore) -> None:
             return
         found, selected = scan["found"], scan["selected"]
         if action == "t":
+            folder = scan.get("folder", "")
             selected.symmetric_difference_update({idx})
-            await event.edit(_scan_text(found, selected), parse_mode="html", buttons=_scan_buttons(found, selected))
+            await event.edit(_scan_text(found, selected, folder), parse_mode="html",
+                             buttons=_scan_buttons(found, selected, folder))
             await event.answer()
         elif action == "x":
             core.scan = None

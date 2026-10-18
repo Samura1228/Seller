@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from telethon import TelegramClient, types, utils
+from telethon import TelegramClient, functions, types, utils
 
 from app.ai import prompts
 from app.ai.client import structured
@@ -60,3 +60,44 @@ async def classify(found: list[Found]) -> list[Found]:
             found[v.id].reason = v.reason_ru
     found.sort(key=lambda f: (not f.is_marketplace, -(f.members or 0)))
     return found[:MAX_CANDIDATES]
+
+
+def _title(f) -> str:
+    t = getattr(f, "title", "")
+    return (getattr(t, "text", t) or "").strip()
+
+
+async def folders(client: TelegramClient) -> list:
+    """The account's chat folders (DialogFilter / shared DialogFilterChatlist), without the default 'All'."""
+    res = await client(functions.messages.GetDialogFiltersRequest())
+    items = getattr(res, "filters", res)
+    return [f for f in items if isinstance(f, (types.DialogFilter, types.DialogFilterChatlist))]
+
+
+async def folder_names(client: TelegramClient) -> list[str]:
+    return [_title(f) for f in await folders(client)]
+
+
+def find_folder(items: list, name: str):
+    want = name.strip().casefold()
+    exact = [f for f in items if _title(f).casefold() == want]
+    if exact:
+        return exact[0]
+    partial = [f for f in items if want in _title(f).casefold()]
+    return partial[0] if len(partial) == 1 else None
+
+
+async def list_folder(client: TelegramClient, name: str, known: set[int]) -> list[Found] | None:
+    """Groups/channels from one chat folder (e.g. «Лимассол»). None if there is no such folder."""
+    folder = find_folder(await folders(client), name)
+    if folder is None:
+        return None
+    wanted = {utils.get_peer_id(p) for p in [*folder.pinned_peers, *folder.include_peers]}
+    excluded = {utils.get_peer_id(p) for p in getattr(folder, "exclude_peers", [])}
+    by_groups, by_channels = bool(getattr(folder, "groups", False)), bool(getattr(folder, "broadcasts", False))
+    out = []
+    for f in await list_groups(client, known):
+        in_folder = f.tg_chat_id in wanted or (by_groups and f.kind != "channel") or (by_channels and f.kind == "channel")
+        if in_folder and f.tg_chat_id not in excluded:
+            out.append(f)
+    return out
