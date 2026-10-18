@@ -29,9 +29,14 @@ class ChatSnapshot:
     can_send_photos: bool = True
     problems: list[str] = field(default_factory=list)
     linked_chat_id: int | None = None  # a channel's discussion group (marked peer id)
+    forum_topics: list[dict] = field(default_factory=list)  # [{id, title, closed}]
+    guessed_topic_id: int | None = None
 
     def rules_source(self) -> str:
         parts = []
+        if self.forum_topics:
+            parts.append("[Forum topics]\n" + "\n".join(
+                f"[{t['id']}] {t['title']}" + (" (closed)" if t.get("closed") else "") for t in self.forum_topics))
         if self.about:
             parts.append(f"[Chat description]\n{self.about}")
         for i, t in enumerate(self.pinned_texts, 1):
@@ -108,9 +113,6 @@ async def inspect_chat(client: TelegramClient, ref: str | int, recent_limit: int
         if entity.broadcast and not (entity.creator or (entity.admin_rights and entity.admin_rights.post_messages)):
             can_post = False
             problems.append("это канал: публиковать могут только админы. Ищи привязанный чат-обсуждение")
-        if entity.forum:
-            can_post = False
-            problems.append("чат с темами (форум) — публикацию в темы пока не поддерживаю")
         if getattr(entity, "send_paid_messages_stars", None):
             can_post = False
             problems.append("сообщения в этом чате платные (Stars)")
@@ -143,8 +145,25 @@ async def inspect_chat(client: TelegramClient, ref: str | int, recent_limit: int
         elif m.media:
             pinned_media += 1
 
+    topics: list[dict] = []
+    guessed = None
+    if isinstance(entity, types.Channel) and entity.forum:
+        res = await client(functions.messages.GetForumTopicsRequest(
+            peer=entity, offset_date=None, offset_id=0, offset_topic=0, limit=50))
+        topics = [{"id": t.id, "title": t.title, "closed": bool(t.closed)}
+                  for t in res.topics if isinstance(t, types.ForumTopic)]
+        guessed = guess_sale_topic(topics)
+        rules_topic = next((t for t in topics if RULES_TOPIC.search(t["title"])), None)
+        if rules_topic:  # rules often live in their own topic rather than in pinned messages
+            async for m in client.iter_messages(entity, reply_to=rules_topic["id"], limit=5):
+                if m.message and m.message.strip():
+                    pinned_texts.append(m.message.strip()[:3000])
+        if guessed is None:
+            problems.append("чат с темами: выбери тему для объявлений в карточке чата")
+
     recent: list[str] = []
-    async for m in client.iter_messages(entity, limit=recent_limit):
+    recent_kwargs = {"reply_to": guessed} if guessed else {}
+    async for m in client.iter_messages(entity, limit=recent_limit, **recent_kwargs):
         if m.message and m.message.strip():
             recent.append(m.message.strip()[:600])
 
@@ -163,4 +182,19 @@ async def inspect_chat(client: TelegramClient, ref: str | int, recent_limit: int
         can_send_photos=can_photos,
         problems=problems,
         linked_chat_id=linked,
+        forum_topics=topics,
+        guessed_topic_id=guessed,
     )
+
+
+SALE_TOPIC = re.compile(r"барахол|продам|продаж|продаю|объявлен|куплю|отдам|market|sell|sale|buy|ad[s]?\b|вещ", re.I)
+RULES_TOPIC = re.compile(r"правил|rules", re.I)
+
+
+def guess_sale_topic(topics: list[dict]) -> int | None:
+    """The open topic for sale ads, by title; None if unclear (the owner picks it in the chat card)."""
+    open_topics = [t for t in topics if not t.get("closed")]
+    for t in open_topics:
+        if SALE_TOPIC.search(t["title"]) and not RULES_TOPIC.search(t["title"]):
+            return t["id"]
+    return None

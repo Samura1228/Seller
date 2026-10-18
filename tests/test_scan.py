@@ -236,3 +236,70 @@ async def test_scanchats_folder_command(monkeypatch):
     m = re.match(r"^/scanchats(?:\s+(.+))?$", "/scanchats Пафос")
     await handler[0](SimpleNamespace(pattern_match=m))
     assert "не нашёл" in core.client.edits[-1][1] and "«Лимассол»" in core.client.edits[-1][1]
+
+
+async def test_forum_chat_topic_flow(monkeypatch):
+    forum = ChatSnapshot(tg_chat_id=-1000000000050, username="kipr_forum", title="КИПР | БАРАХОЛКА", kind="forum",
+                         members_count=8000, about="", forum_topics=[{"id": 1, "title": "General", "closed": False},
+                                                                     {"id": 9, "title": "# Барахолка", "closed": False}],
+                         guessed_topic_id=None, problems=["чат с темами: выбери тему для объявлений в карточке чата"])
+
+    async def inspect(client, ref, recent_limit=80):
+        return forum
+
+    async def structured(**_):
+        return rules(sale_topic_id=None)
+
+    monkeypatch.setattr(chat_service, "inspect_chat", inspect)
+    monkeypatch.setattr(chat_service, "structured", structured)
+    res = await chat_service.add_chat(None, "@kipr_forum")
+    assert not res.auto_rules  # no topic → the owner has to pick one
+    with pytest.raises(ValueError, match="выбери тему"):
+        await chat_service.confirm(res.chat_id)
+    assert await chat_service.set_topic(res.chat_id, 9) == "# Барахолка"
+    chat = await chat_service.confirm(res.chat_id)
+    assert chat.is_active and chat.forum_topic_id == 9 and chat.check_note is None
+
+    from app.bot import keyboards, texts
+    assert "Тема для объявлений: <b># Барахолка</b>" in texts.chat_card(chat)
+    datas = [b.type.data for row in keyboards.topics(chat) for b in row]
+    assert datas[:2] == [f"ct:{chat.id}:1".encode(), f"ct:{chat.id}:9".encode()]
+
+    # the AI read the topic from the rules → chosen automatically, chat can be enabled in one tap
+    async def structured2(**_):
+        return rules(sale_topic_id=9)
+
+    monkeypatch.setattr(chat_service, "structured", structured2)
+    forum.tg_chat_id, forum.username = -1000000000051, "kipr_forum2"
+    res2 = await chat_service.add_chat(None, "@kipr_forum2")
+    assert res2.auto_rules
+    async with session_scope() as s:
+        c2 = await s.get(Chat, res2.chat_id)
+        assert c2.forum_topic_id == 9 and c2.check_note is None
+
+
+async def test_recheck_old_forum_chat(monkeypatch):
+    from app.db.enums import RulesStatus
+
+    async with session_scope() as s:
+        old = Chat(tg_chat_id=-1000000000060, username="old_forum", title="Old forum", kind="forum", can_post=False,
+                   check_note="чат с темами (форум) — публикацию в темы пока не поддерживаю",
+                   rules_status=RulesStatus.CONFIRMED, rules={"max_posts_per_day": 1})
+        s.add(old)
+        await s.flush()
+        old_id = old.id
+    assert old_id in await chat_service.needing_recheck()
+
+    snap = ChatSnapshot(tg_chat_id=-1000000000060, username="old_forum", title="Old forum", kind="forum", members_count=10,
+                        about="", forum_topics=[{"id": 5, "title": "Продам", "closed": False}], guessed_topic_id=5)
+
+    async def inspect(client, ref, recent_limit=80):
+        return snap
+
+    monkeypatch.setattr(chat_service, "inspect_chat", inspect)
+    res = await chat_service.recheck(None, old_id)
+    assert res.error is None
+    async with session_scope() as s:
+        c = await s.get(Chat, old_id)
+        assert c.can_post and c.forum_topic_id == 5 and c.check_note is None and c.rules == {"max_posts_per_day": 1}
+    assert old_id not in await chat_service.needing_recheck()

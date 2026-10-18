@@ -39,9 +39,17 @@ def post_language(chat: Chat) -> str:
     return "en" if lang == ChatLanguage.EN else "ru"
 
 
+def pick_topic(rules: ChatRules, snap: ChatSnapshot) -> int | None:
+    ids = {t["id"] for t in snap.forum_topics if not t.get("closed")}
+    if rules.sale_topic_id in ids:
+        return rules.sale_topic_id
+    return snap.guessed_topic_id
+
+
 def needs_owner(rules: ChatRules, snap: ChatSnapshot) -> bool:
     return (
-        not rules.rules_found
+        (snap.kind == "forum" and pick_topic(rules, snap) is None)
+        or not rules.rules_found
         or rules.confidence < 0.7
         or rules.posting_allowed is None
         or snap.pinned_media_without_text > 0
@@ -85,6 +93,10 @@ async def add_chat(client: TelegramClient, ref: str | int) -> AddResult:
             s.add(chat)
         apply_snapshot(chat, snap)
         chat.rules = rules.model_dump(mode="json")
+        if snap.kind == "forum":
+            chat.forum_topic_id = pick_topic(rules, snap)
+            if chat.forum_topic_id and chat.check_note and "выбери тему" in chat.check_note:
+                chat.check_note = "; ".join(p for p in chat.check_note.split("; ") if "выбери тему" not in p) or None
         chat.rules_status = RulesStatus.NEEDS_ME if needs_owner(rules, snap) else RulesStatus.AUTO
         await s.flush()
         await ensure_rules_approval(s, chat.id)
@@ -104,6 +116,9 @@ def apply_snapshot(chat: Chat, snap: ChatSnapshot) -> None:
     chat.checked_at = datetime.now(UTC)
     chat.rules_raw = snap.rules_source()[:20000] or None
     chat.language = ChatLanguage(detect_language(snap.recent_texts))
+    chat.forum_topics = snap.forum_topics
+    if chat.forum_topic_id and chat.forum_topic_id not in {t["id"] for t in snap.forum_topics}:
+        chat.forum_topic_id = None  # the topic was deleted
     if not snap.can_post:
         chat.is_active = False
 
@@ -136,6 +151,12 @@ async def edit_rules(chat_id: int, correction: str) -> None:
         chat.rules_status = RulesStatus.CONFIRMED
 
 
+async def needing_recheck() -> list[int]:
+    """Chats we couldn't post to (e.g. forums before topic support, or the account wasn't a member yet)."""
+    async with session_scope() as s:
+        return list(await s.scalars(select(Chat.id).where(Chat.can_post.is_(False)).order_by(Chat.id)))
+
+
 async def known_tg_ids() -> set[int]:
     async with session_scope() as s:
         return {i for i in await s.scalars(select(Chat.tg_chat_id)) if i is not None}
@@ -147,6 +168,8 @@ async def confirm(chat_id: int) -> Chat:
         chat = await s.get(Chat, chat_id)
         if not chat.can_post:
             raise ValueError(f"в этот чат нельзя публиковать: {chat.check_note}")
+        if chat.kind == "forum" and not chat.forum_topic_id:
+            raise ValueError("это чат с темами — сначала выбери тему для объявлений")
         chat.rules_status = RulesStatus.CONFIRMED
         chat.is_active = True
         await _resolve_rules_approval(s, chat_id, ApprovalStatus.APPROVED)
@@ -158,6 +181,18 @@ async def deactivate(chat_id: int) -> None:
         chat = await s.get(Chat, chat_id)
         chat.is_active = False
         await _resolve_rules_approval(s, chat_id, ApprovalStatus.REJECTED)
+
+
+async def set_topic(chat_id: int, topic_id: int) -> str:
+    async with session_scope() as s:
+        chat = await s.get(Chat, chat_id)
+        topic = next((t for t in chat.forum_topics or [] if t["id"] == topic_id), None)
+        if topic is None:
+            raise ValueError("такой темы нет")
+        chat.forum_topic_id = topic_id
+        if chat.check_note and "выбери тему" in chat.check_note:
+            chat.check_note = None
+        return topic["title"]
 
 
 async def close_card(chat_id: int) -> None:
@@ -198,6 +233,8 @@ async def recheck(client: TelegramClient, chat_id: int) -> AddResult:
             chat = await s.get(Chat, chat_id)
             was_active = chat.is_active
             apply_snapshot(chat, snap)
-            chat.is_active = was_active and chat.can_post
+            if snap.kind == "forum" and not chat.forum_topic_id:
+                chat.forum_topic_id = snap.guessed_topic_id
+            chat.is_active = was_active and chat.can_post and (snap.kind != "forum" or bool(chat.forum_topic_id))
         return AddResult(ref=ref, chat_id=chat_id)
     return await add_chat(client, ref)

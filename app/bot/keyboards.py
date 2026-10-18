@@ -44,6 +44,8 @@ def chat(c) -> list[list[Button]]:
     rows.append([Button.inline("✏️ Поправить правила", f"ch:edit:{i}".encode()),
                  Button.inline("🌐 Язык", f"ch:lang:{i}".encode())])
     rows.append([Button.inline("🔄 Перепроверить чат", f"ch:recheck:{i}".encode())])
+    if c.kind == "forum":
+        rows.insert(0, [Button.inline("🧵 Тема для объявлений", f"ch:topic:{i}".encode())])
     if c.is_active:
         rows.append([Button.inline("✅ Готово", f"ch:done:{i}".encode()),
                      Button.inline("⏸ Не публиковать сюда", f"ch:off:{i}".encode())])
@@ -88,7 +90,7 @@ def inquiry(inq, item, buyer, chat, candidates) -> list[list[Button]]:
     links = []
     if buyer is not None and buyer.username:
         links.append(Button.url("✉️ Открыть чат", f"https://t.me/{buyer.username}"))
-    if chat is not None and (link := message_link(chat.tg_chat_id, chat.username, inq.tg_message_id)):
+    if chat is not None and (link := message_link(chat.tg_chat_id, chat.username, inq.tg_message_id, chat.forum_topic_id)):
         links.append(Button.url("💬 К ответу в чате", link))
     if item is None:
         if inq.status != InquiryStatus.HANDLED:
@@ -125,3 +127,14 @@ def item_actions(item) -> list[list[Button]] | None:
 def confirm_withdraw(item_id: int) -> list[list[Button]]:
     return [[Button.inline("Да, снять и удалить посты", f"it:wdyes:{item_id}".encode()),
              Button.inline("Отмена", f"it:back:{item_id}".encode())]]
+
+
+def topics(chat) -> list[list[Button]]:
+    rows = []
+    for t in (chat.forum_topics or [])[:40]:
+        if t.get("closed"):
+            continue
+        mark = "✅ " if t["id"] == chat.forum_topic_id else ""
+        rows.append([Button.inline(f"{mark}{t['title']}"[:60], f"ct:{chat.id}:{t['id']}".encode())])
+    rows.append([Button.inline("← Назад", f"ch:card:{chat.id}".encode())])
+    return rows

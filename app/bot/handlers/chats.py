@@ -218,6 +218,42 @@ def register(core: BotCore) -> None:
         else:
             await event.answer()
 
+    @core.client.on(cmd(r"^/recheckchats\b"))
+    async def on_recheckchats(event) -> None:
+        if await need_userbot():
+            return
+        ids = await chat_service.needing_recheck()
+        if not ids:
+            await core.send("Все чаты в порядке — перепроверять нечего.")
+            return
+        status = await core.send(f"🔄 Перепроверяю чаты, куда нельзя было писать: {len(ids)}…")
+
+        async def go() -> None:
+            lines = []
+            for chat_id in ids:
+                try:
+                    res = await chat_service.recheck(core.userbot, chat_id)
+                except Exception as e:  # noqa: BLE001
+                    lines.append(f"❌ чат #{chat_id}: {texts.escape(type(e).__name__)}")
+                    continue
+                async with session_scope() as s:
+                    chat = await s.get(Chat, chat_id)
+                name = texts.chat_name(chat)
+                if res.error:
+                    lines.append(f"❌ #{chat_id} {name}: {texts.escape(res.error)}")
+                elif chat.can_post:
+                    if not chat.is_active:
+                        async with session_scope() as s:
+                            await chat_service.ensure_rules_approval(s, chat_id)
+                    lines.append(f"✅ #{chat_id} {name}: теперь можно публиковать — карточка придёт ниже")
+                else:
+                    lines.append(f"🚫 #{chat_id} {name}: {texts.escape(chat.check_note or 'писать нельзя')}")
+                await asyncio.sleep(ADD_PAUSE_SECONDS)
+            await core.edit(status.id, "<b>Перепроверка</b>\n" + "\n".join(lines)[:3900])
+            await core.show_next()
+
+        core.spawn(go())
+
     @core.client.on(cmd(r"^/chats\b"))
     async def on_chats(event) -> None:
         async with session_scope() as s:
@@ -305,6 +341,22 @@ def register(core: BotCore) -> None:
                 await event.edit(buttons=None)
                 await event.answer("Отложено")
                 await core.show_next()
+            case "topic":
+                async with session_scope() as s:
+                    chat = await s.get(Chat, chat_id)
+                if not chat.forum_topics:
+                    await event.answer("Тем не нашёл — нажми «Перепроверить чат»", alert=True)
+                    return
+                await event.edit(buttons=keyboards.topics(chat))
+                await event.answer("Выбери тему, куда публиковать")
+            case "card":
+                await event.answer()
+                if aid:
+                    await core.refresh_approval(aid)
+                else:
+                    async with session_scope() as s:
+                        chat = await s.get(Chat, chat_id)
+                    await event.edit(texts.chat_card(chat), parse_mode="html", buttons=keyboards.chat(chat))
             case "done":
                 await chat_service.close_card(chat_id)
                 await event.edit(buttons=None)
@@ -320,6 +372,23 @@ def register(core: BotCore) -> None:
                 await core.show_next()
             case _:
                 await event.answer()
+
+    @core.client.on(events.CallbackQuery(data=re.compile(rb"^ct:(\d+):(\d+)$"), func=admin_only))
+    async def on_topic_pick(event) -> None:
+        chat_id, topic_id = int(event.data_match.group(1)), int(event.data_match.group(2))
+        try:
+            title = await chat_service.set_topic(chat_id, topic_id)
+        except ValueError as e:
+            await event.answer(str(e), alert=True)
+            return
+        await event.answer(f"Тема: {title}")
+        aid = await core._approval_id(ApprovalKind.CHAT_RULES, chat_id=chat_id)
+        if aid:
+            await core.refresh_approval(aid)
+        else:
+            async with session_scope() as s:
+                chat = await s.get(Chat, chat_id)
+            await event.edit(texts.chat_card(chat), parse_mode="html", buttons=keyboards.chat(chat))
 
     # ---------- previews card ----------
 

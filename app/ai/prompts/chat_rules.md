@@ -9,3 +9,6 @@ and hashtags people really use; they are not rules.
   If the rules say nothing but most recent posts use hashtags, put the common ones into allowed_hashtags.
 - If posting sale ads is only allowed for admins, via a bot, or for a fee, set posting_allowed=false and say why in summary_ru.
 - If rules are only in images, or are ambiguous, set a low confidence and ask in questions_ru.
+- Forum chats (with topics): pick sale_topic_id from the topic list — the topic meant for sale ads
+  ("Барахолка", "Продам", "Объявления"...). If the rules name a topic, use it. Never pick a rules/news topic.
+  If no topic fits, set null and ask in questions_ru.

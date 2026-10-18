@@ -100,7 +100,8 @@ class Publisher:
 
     async def _load(self, now: datetime) -> tuple[list[Candidate], list[ChatState], dict[int, str]]:
         async with session_scope() as s:
-            chats = list(await s.scalars(select(Chat).where(Chat.is_active.is_(True), Chat.can_post.is_(True))))
+            chats = [c for c in await s.scalars(select(Chat).where(Chat.is_active.is_(True), Chat.can_post.is_(True)))
+                     if c.kind != "forum" or c.forum_topic_id]  # a forum without a chosen topic can't take posts
             counts = dict((await s.execute(
                 select(Publication.chat_id, func.count()).where(Publication.posted_at >= now - timedelta(hours=24))
                 .group_by(Publication.chat_id))).all())
@@ -198,11 +199,11 @@ class Publisher:
             text = render_publication(item, pub.text, pub.hashtags or [], pub.language, self.settings.seller_username)
             max_photos = int((chat.rules or {}).get("max_photos") or 10)
             photos = [self.settings.data_dir / p.path for p in item.photos][:max(1, max_photos)]
-            target = (chat.tg_chat_id, chat.username, chat.can_send_photos)
+            target = (chat.tg_chat_id, chat.username, chat.can_send_photos, chat.forum_topic_id)
             item_name, chat_title = item.display_name, chat.title or chat.username or str(chat.id)
 
         try:
-            ids, text_id = await self.sender(self.client, target[0], target[1], text, photos, target[2])
+            ids, text_id = await self.sender(self.client, target[0], target[1], text, photos, target[2], target[3])
         except errors.FloodWaitError as e:
             until = now + timedelta(seconds=e.seconds + 60)
             await settings_store.put_time(K_PAUSED, until)
@@ -216,6 +217,13 @@ class Publisher:
                 "🛑 Telegram ограничил аккаунт для продаж за спам (PeerFlood). Публикации на паузе 24 часа. "
                 "Проверь статус аккаунта в @SpamBot с этого аккаунта.")
             return "PeerFlood — пауза 24 ч"
+        except errors.TopicDeletedError:
+            async with session_scope() as s:
+                chat = await s.get(Chat, pub.chat_id)
+                chat.forum_topic_id, chat.is_active = None, False
+                chat.check_note = "тема для объявлений удалена — выбери другую"
+            await self.notifier.publisher_alert(f"🧵 В «{chat_title}» удалили тему для объявлений. Чат выключен, выбери тему в /chats.")
+            return "тема удалена"
         except errors.SlowModeWaitError as e:
             await settings_store.put_time(chat_block_key(pub.chat_id), now + timedelta(seconds=e.seconds + 30))
             return f"slow mode в «{chat_title}», повторю позже"
@@ -260,7 +268,7 @@ class Publisher:
                 item.first_published_at = now
             if item.status == ItemStatus.READY:
                 await set_status(s, item, ItemStatus.PUBLISHED, Actor.SYSTEM, f"first post in {chat_title}")
-            link = message_link(chat.tg_chat_id, chat.username, ids[0])
+            link = message_link(chat.tg_chat_id, chat.username, ids[0], chat.forum_topic_id)
             item_id = item.id
         await settings_store.put_time(K_NEXT, now + next_gap(self.settings.publish_gap_min_minutes,
                                                              self.settings.publish_gap_max_minutes))

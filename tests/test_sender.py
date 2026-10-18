@@ -43,3 +43,26 @@ async def test_send_variants(tmp_path):
     c = FakeClient(entity_ok=False)  # not in the dialog cache -> resolved by username
     assert await send_post(c, -100, "chat", "t", photos[:1], False) == ([1], 1)
     assert c.log == [("text", "peer:@chat", "t", None)]
+
+
+async def test_send_into_forum_topic(tmp_path):
+    class TopicClient(FakeClient):
+        async def send_file(self, peer, files, caption=None, parse_mode=None, reply_to=None):
+            self.log.append(("file", peer, files, caption, reply_to))
+            return [self._msg() for _ in files] if isinstance(files, list) else self._msg()
+
+        async def send_message(self, peer, text, parse_mode=None, link_preview=False, reply_to=None):
+            self.log.append(("text", peer, text, reply_to))
+            return self._msg()
+
+    p = tmp_path / "a.jpg"
+    p.write_bytes(b"x")
+    c = TopicClient()
+    await send_post(c, -100, "chat", "short", [p, p], True, topic_id=9)
+    assert c.log[0][4] == 9
+    c = TopicClient()
+    await send_post(c, -100, "chat", "text only", [], False, topic_id=9)
+    assert c.log[0][3] == 9
+
+    from app.userbot.sender import message_link
+    assert message_link(-100123, "kipr", 55, 9) == "https://t.me/kipr/9/55"

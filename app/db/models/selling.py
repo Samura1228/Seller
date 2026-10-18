@@ -36,6 +36,8 @@ class Chat(TimestampMixin, Base):
     can_post: Mapped[bool] = mapped_column(default=True)
     can_send_photos: Mapped[bool] = mapped_column(default=True)
     check_note: Mapped[str | None] = mapped_column(sa.Text)  # why we can't post, etc.
+    forum_topic_id: Mapped[int | None] = mapped_column(sa.BigInteger)  # forum chats: the topic for sale ads
+    forum_topics: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)  # [{id, title, closed}]
     checked_at: Mapped[datetime | None]
     language: Mapped[ChatLanguage | None] = mapped_column(str_enum(ChatLanguage))
     language_override: Mapped[ChatLanguage | None] = mapped_column(str_enum(ChatLanguage))

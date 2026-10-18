@@ -69,6 +69,7 @@ class ChatRules(BaseModel):
     summary_ru: str = Field(description="1-2 lines in Russian: the rules that matter for a private seller")
     confidence: float = Field(description="0..1, how sure you are the rules were read correctly")
     questions_ru: list[str] = Field(description="What the owner should clarify, in Russian; max 3")
+    sale_topic_id: int | None = Field(default=None, description="Forum chats only: id of the topic where sale ads must be posted (from the topic list); null otherwise")
 
 
 class ChatVersion(BaseModel):

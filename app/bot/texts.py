@@ -44,6 +44,7 @@ HELP = (
     "/scanchats — найти барахолки среди всех групп аккаунта для продаж\n"
     "/addchat @chat1 @chat2 — добавить чаты вручную (аккаунт для продаж уже должен в них состоять)\n"
     "/chats — список чатов · /chat 3 — карточка чата\n"
+    "/recheckchats — перепроверить чаты, куда раньше нельзя было писать\n"
     "/publisher — включить/выключить публикации, статус очереди\n"
     "/versions 12 — заново подготовить версии постов для вещи\n\n"
     "<b>Отклики и продажи</b>\n"
@@ -202,6 +203,10 @@ def chat_card(chat, *, busy: bool = False) -> str:
         lines.append(f"\n{UPDATING}")
     if chat.check_note:
         lines.append(f"\n⚠️ {escape(chat.check_note)}")
+    if chat.kind == "forum":
+        topic = next((t["title"] for t in chat.forum_topics or [] if t["id"] == chat.forum_topic_id), None)
+        lines.append(f"\n🧵 Тема для объявлений: <b>{escape(topic)}</b>" if topic
+                     else "\n🧵 Тема для объявлений: ❓ не выбрана — нажми «🧵 Тема»")
 
     allowed = r.get("posting_allowed")
     lines.append("\n<b>Правила</b> — " + RULES_STATUS_RU.get(chat.rules_status.value, ""))
@@ -317,7 +322,7 @@ def inquiry_card(inq, item, buyer, chat, count: int, seller: str) -> str:
         head = "💬 <b>Сообщение · не понял, о какой вещи</b>"
     lines = [head, f"От: {buyer_name(buyer)}"]
     if chat is not None:
-        link = message_link(chat.tg_chat_id, chat.username, inq.tg_message_id)
+        link = message_link(chat.tg_chat_id, chat.username, inq.tg_message_id, chat.forum_topic_id)
         where = f'<a href="{escape(link)}">{chat_name(chat)}</a>' if link else chat_name(chat)
         lines.append(f"Где: ответ на пост в {where}")
     else:

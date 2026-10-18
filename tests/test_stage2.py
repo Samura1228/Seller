@@ -103,7 +103,7 @@ class FakeSender:
         self.calls, self.raise_next = [], None
         self._id = 100
 
-    async def __call__(self, client, tg_chat_id, username, text, photos, with_photos):
+    async def __call__(self, client, tg_chat_id, username, text, photos, with_photos, topic_id=None):
         if self.raise_next:
             e, self.raise_next = self.raise_next, None
             raise e
