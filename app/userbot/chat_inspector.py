@@ -2,6 +2,8 @@
 
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from telethon import TelegramClient, errors, functions, types, utils
 
@@ -80,6 +82,23 @@ def _banned(rights: types.ChatBannedRights | None, attr: str) -> bool:
     return bool(rights and getattr(rights, attr, False))
 
 
+def _forever(until: datetime | None) -> bool:
+    # Telegram: 0 (Telethon gives the 1970 epoch) or more than a year ahead means "forever".
+    return until is None or until.year <= 1970 or until > datetime.now(UTC) + timedelta(days=366)
+
+
+def _in_force(rights: types.ChatBannedRights | None) -> types.ChatBannedRights | None:
+    if rights is None or _forever(rights.until_date) or rights.until_date > datetime.now(UTC):
+        return rights
+    return None  # a temporary restriction that has already expired
+
+
+def _until(rights: types.ChatBannedRights) -> str:
+    if _forever(rights.until_date):
+        return "навсегда"
+    return "до " + rights.until_date.astimezone(ZoneInfo("Asia/Nicosia")).strftime("%d.%m %H:%M")
+
+
 async def inspect_chat(client: TelegramClient, ref: str | int, recent_limit: int = 80) -> ChatSnapshot:
     target = ref if isinstance(ref, int) else normalize_ref(ref)
     try:
@@ -127,15 +146,30 @@ async def inspect_chat(client: TelegramClient, ref: str | int, recent_limit: int
     else:
         raise ChatCheckError("неизвестный тип чата")
 
-    banned, default_banned = getattr(entity, "banned_rights", None), getattr(entity, "default_banned_rights", None)
+    # These are Telegram's own permissions for the selling account — not the chat's written rules.
+    mine = _in_force(getattr(entity, "banned_rights", None))  # restriction on this account only
+    everyone = _in_force(getattr(entity, "default_banned_rights", None))  # chat-wide setting
     is_admin = bool(getattr(entity, "creator", False) or getattr(entity, "admin_rights", None))
     if not is_admin:
-        if _banned(banned, "send_messages") or _banned(default_banned, "send_messages"):
+        if _banned(everyone, "send_messages"):
             can_post = False
-            problems.append("писать в чат запрещено")
-        if any(_banned(r, a) for r in (banned, default_banned) for a in ("send_media", "send_photos")):
+            problems.append("Telegram: в этом чате писать запрещено для всех участников, могут только админы "
+                            "(объявления там, видимо, публикуются через админа или бота — смотри закреп)")
+        elif _banned(mine, "send_messages"):
+            can_post = False
+            problems.append(f"Telegram: аккаунту для продаж лично запрещено писать в чат ({_until(mine)}). "
+                            "Обычно это капча-бот при вступлении или мут от админа: открой чат с аккаунта для продаж, "
+                            "пройди проверку или напиши админу, потом нажми «🔄 Перепроверить чат»")
+        muted = _banned(everyone, "send_messages") or _banned(mine, "send_messages")  # already explained above
+        if any(_banned(everyone, a) for a in ("send_media", "send_photos")):
             can_photos = False
-            problems.append("фото отправлять нельзя — пойдёт только текст")
+            if not muted:
+                problems.append("Telegram: фото в этом чате запрещены для всех участников — пойдёт только текст")
+        elif any(_banned(mine, a) for a in ("send_media", "send_photos")):
+            can_photos = False
+            if not muted:
+                problems.append(f"Telegram: аккаунту для продаж лично запрещено отправлять фото ({_until(mine)}) — "
+                                "пока пойдёт только текст; после снятия ограничения нажми «🔄 Перепроверить чат»")
 
     pinned_texts: list[str] = []
     pinned_media = 0

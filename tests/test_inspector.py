@@ -62,6 +62,26 @@ async def test_problems_detected():
         await inspect_chat(FakeClient(user), "@someone")
 
 
+async def test_restrictions_explain_who_restricts():
+    from datetime import UTC, timedelta
+
+    # Chat-wide: only admins may write.
+    everyone = types.ChatBannedRights(until_date=None, send_messages=True, send_media=True)
+    snap = await inspect_chat(FakeClient(channel(default_banned_rights=everyone)), "@kiprr")
+    assert not snap.can_post and not snap.can_send_photos
+    assert "для всех участников" in snap.problems[0] and "лично" not in " ".join(snap.problems)
+
+    # Personal mute of the selling account (captcha bot / admin) — the chat itself allows posting.
+    muted = types.ChatBannedRights(until_date=datetime(1970, 1, 1, tzinfo=UTC), send_messages=True, send_media=True)
+    snap = await inspect_chat(FakeClient(channel(banned_rights=muted)), "@kiprr")
+    assert not snap.can_post and "лично" in snap.problems[0] and "навсегда" in snap.problems[0]
+
+    # An expired mute doesn't count.
+    expired = types.ChatBannedRights(until_date=datetime.now(UTC) - timedelta(hours=1), send_messages=True)
+    snap = await inspect_chat(FakeClient(channel(banned_rights=expired)), "@kiprr")
+    assert snap.can_post and snap.can_send_photos and not snap.problems
+
+
 async def test_forum_topics():
     from app.userbot.chat_inspector import guess_sale_topic
 
