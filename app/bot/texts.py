@@ -129,6 +129,9 @@ def review_card(item: Item, research: PriceResearch | None, seller: str, *, busy
         price_block.append(" · ".join(refs))
     if research and research.rationale:
         price_block.append(f"<i>{escape(research.rationale)}</i>")
+    if research and research.warnings:
+        price_block.append("⚠️ Цена посчитана без: " + escape("; ".join(research.warnings)) +
+                           ". Когда починим — нажми «🔄 Пересчитать цену».")
     lines.append("\n" + "\n".join(price_block))
 
     for lang, flag in ((Language.RU, "🇷🇺"), (Language.EN, "🇬🇧")):

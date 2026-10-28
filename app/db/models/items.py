@@ -130,6 +130,7 @@ class PriceResearch(TimestampMixin, Base):
     proposed_price: Mapped[Decimal | None]
     proposed_min: Mapped[Decimal | None]
     rationale: Mapped[str | None] = mapped_column(sa.Text)
+    warnings: Mapped[list[str]] = mapped_column(JSONB, default=list)  # sources that failed, shown on the card
 
 
 class PriceHistory(TimestampMixin, Base):

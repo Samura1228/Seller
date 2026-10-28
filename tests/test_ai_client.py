@@ -62,7 +62,7 @@ async def test_web_research_continues_after_pause_turn(mock_api):
     assert "€349" in text
     assert len(requests) == 2
     tool = requests[0]["tools"][0]
-    assert tool["type"] == "web_search_20250305" and tool["user_location"]["country"] == "CY"
+    assert tool["type"] == "web_search_20250305" and "user_location" not in tool  # API rejects country CY
     assert requests[1]["messages"][-1]["role"] == "assistant"  # paused turn sent back
     assert [u[3] for u in usage] == [2, 1]
 

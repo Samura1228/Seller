@@ -27,11 +27,13 @@ async def research_and_propose(s: AsyncSession, item: Item) -> PriceResearch:
 
     comps: list[dict] = []
     comps_note = ""
+    warnings: list[str] = []
     try:
         comps = await apify_bazaraki.search(query)
     except apify_bazaraki.ComparablesError as e:
         comps_note = f"(Bazaraki comparables unavailable: {e})"
         log.warning("Comparables failed for item %s: %s", item.id, e)
+        warnings.append(f"аналоги с Bazaraki ({e})")
 
     try:
         research = await web_research(
@@ -43,6 +45,7 @@ async def research_and_propose(s: AsyncSession, item: Item) -> PriceResearch:
     except Exception as e:  # web search problems must not block pricing: comps + knowledge still work
         log.warning("Web research failed for item %s: %s", item.id, e)
         research = f"(web research unavailable: {type(e).__name__})"
+        warnings.append(f"поиск в вебе ({type(e).__name__}: {str(e)[:120]})")
 
     comps_text = "\n".join(
         f"[{i}] €{c['price']:.0f} — {c['title']} ({c.get('location') or '?'})" for i, c in enumerate(comps)
@@ -69,6 +72,7 @@ async def research_and_propose(s: AsyncSession, item: Item) -> PriceResearch:
         proposed_price=Decimal(proposal.price_eur),
         proposed_min=Decimal(min(proposal.min_price_eur, proposal.price_eur)),
         rationale=proposal.rationale_ru,
+        warnings=warnings,
     )
     s.add(pr)
     item.new_price_ref = pr.new_price

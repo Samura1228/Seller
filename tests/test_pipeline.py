@@ -183,6 +183,30 @@ async def test_full_stage1_flow(tmp_path, mock_ai):
         assert await s.scalar(select(func.count()).select_from(Approval).where(Approval.item_id == hp)) == 1
 
 
+async def test_failed_price_sources_are_shown_on_card(monkeypatch, mock_ai):
+    """Web search / Bazaraki failures don't block pricing, but the card says the price was made without them."""
+    settings = get_settings()
+
+    async def broken_web(**_):
+        raise RuntimeError("Country code CY is not supported.")
+
+    async def broken_comps(query):
+        raise pricing.apify_bazaraki.ComparablesError("APIFY_TOKEN is not set")
+
+    monkeypatch.setattr(pricing, "web_research", broken_web)
+    monkeypatch.setattr(pricing.apify_bazaraki, "search", broken_comps)
+    async with session_scope() as s:
+        item_id = await s.scalar(select(Item.id).where(Item.status == ItemStatus.READY).limit(1))
+    await pipeline.reprice(item_id, FakeNotifier())
+    async with session_scope() as s:
+        item = await recognition.load_item(s, item_id)
+        research = await pricing.latest_research(s, item_id)
+        assert research.warnings == ["аналоги с Bazaraki (APIFY_TOKEN is not set)",
+                                     "поиск в вебе (RuntimeError: Country code CY is not supported.)"]
+        card = texts.review_card(item, research, settings.seller_username)
+    assert "⚠️ Цена посчитана без: аналоги с Bazaraki" in card and "Пересчитать цену" in card
+
+
 def test_parse_price():
     assert parse_price("120") == (Decimal(120), None)
     assert parse_price("120/100") == (Decimal(120), Decimal(100))

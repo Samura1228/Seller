@@ -137,7 +137,8 @@ async def web_research(
         "type": "web_search_20250305",
         "name": "web_search",
         "max_uses": settings.ai_web_search_max_uses,
-        "user_location": {"type": "approximate", "city": "Limassol", "country": "CY", "timezone": "Asia/Nicosia"},
+        # No user_location: the API rejects country "CY" (not in its supported list), which failed every search.
+        # The prompt itself asks for Cyprus / EU prices in EUR.
     }]
     texts: list[str] = []
     for _ in range(5):
