@@ -13,14 +13,14 @@ from app.config import get_settings
 from app.db.enums import (
     Actor,
     ApprovalStatus,
-    ExternalStatus,
     InquiryStatus,
     ItemStatus,
     PublicationStatus,
     ReservationStatus,
 )
-from app.db.models import Approval, Chat, ExternalListing, Inquiry, Item, Publication, Reservation, Sale
+from app.db.models import Approval, Chat, Inquiry, Item, Publication, Reservation, Sale
 from app.db.session import session_scope
+from app.services import marketplaces
 from app.services.items import set_status
 from app.services.listing import render_publication
 from app.userbot.sender import delete_post, edit_post_text
@@ -45,7 +45,7 @@ class SaleResult:
 class PostsResult:
     done: int = 0
     failed: list[str] = field(default_factory=list)
-    bazaraki_to_remove: list[str] = field(default_factory=list)
+    bazaraki_to_remove: list[str] = field(default_factory=list)  # marketplaces the helper will clean up
 
 
 async def _open_status(s, item: Item) -> ItemStatus:
@@ -134,11 +134,8 @@ async def remove_posts(client: TelegramClient | None, item_id: int) -> PostsResu
             Publication.status.in_([PublicationStatus.DRAFT, PublicationStatus.APPROVED, PublicationStatus.QUEUED]),
         )):
             await s.delete(p)
-        for ext in await s.scalars(select(ExternalListing).where(
-            ExternalListing.item_id == item_id, ExternalListing.status == ExternalStatus.PUBLISHED
-        )):
-            ext.status = ExternalStatus.REMOVAL_NEEDED
-            res.bazaraki_to_remove.append(ext.url or ext.platform.value)
+        for ext in await marketplaces.item_gone(s, item_id):  # the helper on the Mac deletes these ads
+            res.bazaraki_to_remove.append(marketplaces.NAMES[ext.platform])
 
     for pub, chat in rows:
         name = chat.title or chat.username or str(chat.id)

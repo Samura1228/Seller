@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     post_check_interval_minutes: int = 120  # how often to check that our posts still exist in chats
     post_check_first_delay_seconds: int = 300
 
+    # Marketplace helper (runs on my Mac, fills Bazaraki / Kyma / Facebook forms). Shared secret for its API.
+    helper_token: str | None = None
+    marketplace_daily_limit: int = 5       # per platform
+    marketplace_gap_min_minutes: int = 30  # between ads on one platform
+    marketplace_gap_max_minutes: int = 90
+
     # HTTP
     port: int = 8080
     log_level: str = "INFO"

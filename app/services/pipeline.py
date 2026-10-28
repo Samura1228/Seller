@@ -178,6 +178,9 @@ async def approve(item_id: int) -> None:
         approval = await ensure_review_approval(s, item)
         approval.status = ApprovalStatus.APPROVED
         approval.resolved_at = datetime.now(UTC)
+    from app.services import marketplaces
+
+    await marketplaces.enqueue(item_id)  # Bazaraki / Kyma / Facebook queue for the helper on the Mac
 
 
 async def withdraw(item_id: int) -> None:

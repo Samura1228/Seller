@@ -7,9 +7,10 @@ import signal
 
 import uvicorn
 
+from app.api.helper import set_notifier
 from app.api.main import api
 from app.bot.core import BotCore, recover_interrupted
-from app.bot.handlers import chats, commands, intake, review, sales
+from app.bot.handlers import chats, commands, intake, marketplaces, review, sales
 from app.config import get_settings
 from app.db.lock import acquire_runner_lock
 from app.services.post_watch import PostWatcher
@@ -60,6 +61,8 @@ async def main() -> None:
     review.register(core)
     chats.register(core)
     sales.register(core)
+    marketplaces.register(core)
+    set_notifier(core)  # the helper's API reports filled forms / published ads through the bot
     await core.client.start(bot_token=settings.bot_token)
     me = await core.client.get_me()
     logging.info("Bot started as @%s", me.username)

@@ -1,5 +1,7 @@
 """Structured outputs expected from Claude."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.db.enums import Condition
@@ -76,6 +78,34 @@ class ChatVersion(BaseModel):
     title: str = Field(description="Title line")
     body: str = Field(description="Value lines, condition, what's included. WITHOUT price, quantity, location, delivery, contact or hashtags")
     hashtags: list[str] = Field(description="Hashtags for this chat, with #. Empty if the chat uses none")
+
+
+class MarketplaceText(BaseModel):
+    title: str = Field(description="Ad title for the platform: what it is + brand/model + key hook. No price, no emoji")
+    body: str = Field(description="Ad description. WITHOUT price, location, delivery or contact lines (added automatically)")
+    category_path: list[str] = Field(description="Category on the platform, from top level down, e.g. "
+                                     "['Electronics, appliances', 'Audio, stereo']. Use the platform's own names")
+    condition: str = Field(description="One of: new, like_new, used")
+
+
+class FormAction(BaseModel):
+    element: int = Field(description="id of the element from the page snapshot")
+    action: Literal["fill", "select", "click", "check", "upload_photos"] = Field(
+        description="fill: type text; select: choose an option of a <select> by its text; click: press a button/link/"
+                    "option; check: tick a checkbox/radio; upload_photos: put the item photos into a file input")
+    value: str | None = Field(default=None, description="text for fill, option text for select; null otherwise")
+
+
+class FormPlan(BaseModel):
+    state: Literal["continue", "ready", "done", "logged_out", "blocked"] = Field(
+        description="continue: do the actions and send a new snapshot; ready: the form is complete, only the final "
+                    "publish/post button is left (do NOT include it in actions); done: the goal is reached (for "
+                    "removal: the ad is deleted; after publishing: the ad page is shown); logged_out: a login page; "
+                    "blocked: captcha, phone verification, payment or an error you can't fix")
+    actions: list[FormAction] = Field(description="Actions for this step, in order. Never the final publish button")
+    publish_element: int | None = Field(description="When state=ready: id of the final publish/post button")
+    ad_url: str | None = Field(description="When the ad's own page or link is visible: its URL")
+    note_ru: str = Field(description="One short line for the owner in Russian: what you did or what blocks you")
 
 
 class EditedPost(BaseModel):

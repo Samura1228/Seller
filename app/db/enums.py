@@ -128,8 +128,13 @@ class ExternalPlatform(StrEnum):
 
 
 class ExternalStatus(StrEnum):
-    WAITING = "waiting"
-    FILLED = "filled"
+    WAITING = "waiting"                # in the queue for the helper
+    FILLING = "filling"                # the helper took it and is filling the form
+    FILLED = "filled"                  # form filled, screenshot sent, waiting for my decision
+    APPROVED = "approved"              # I said "publish", the helper presses the button
     PUBLISHED = "published"
-    REMOVAL_NEEDED = "removal_needed"
+    FAILED = "failed"                  # gave up after several attempts
+    CANCELLED = "cancelled"            # I don't want it on this platform / item gone before publishing
+    REMOVAL_NEEDED = "removal_needed"  # sold or withdrawn: the helper must delete the ad
+    REMOVING = "removing"
     REMOVED = "removed"

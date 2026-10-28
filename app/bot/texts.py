@@ -50,7 +50,8 @@ HELP = (
     "/publisher — включить/выключить публикации, статус очереди\n"
     "/versions 12 — заново подготовить версии постов для вещи\n"
     "/posts — где объявления висят, где в очереди, где их удалили · /posts 12 — по вещи, со ссылками\n"
-    "/checkposts — проверить прямо сейчас, не удалили ли посты (сам бот проверяет каждые 2 часа)\n\n"
+    "/checkposts — проверить прямо сейчас, не удалили ли посты (сам бот проверяет каждые 2 часа)\n"
+    "/platforms — Bazaraki, Kyma, Facebook Marketplace: очередь, вкл/выкл, статус помощника на Mac\n\n"
     "<b>Отклики и продажи</b>\n"
     "Отклики из лички и ответы на посты приходят сюда автоматически, с кнопками «Бронь» и «Продано».\n"
     "/inquiries — последние отклики\n"
@@ -456,8 +457,8 @@ def sale_done(item, res, posts) -> str:
             lines.append(f"Количество в постах обновлено: {posts.done} из {posts.done + len(posts.failed)}.")
     if posts.failed:
         lines.append("⚠️ Не получилось: " + escape("; ".join(posts.failed)))
-    for url in posts.bazaraki_to_remove:
-        lines.append(f"🧹 Не забудь снять объявление: {escape(url)}")
+    if posts.bazaraki_to_remove:
+        lines.append("🧹 Помощник на Mac снимет объявления: " + escape(", ".join(posts.bazaraki_to_remove)))
     return "\n".join(lines)
 
 
@@ -467,8 +468,8 @@ def withdrawn_done(item, posts) -> str:
         lines.append(f"Посты удалены: {posts.done} из {posts.done + len(posts.failed)}.")
     if posts.failed:
         lines.append("⚠️ Не получилось: " + escape("; ".join(posts.failed)))
-    for url in posts.bazaraki_to_remove:
-        lines.append(f"🧹 Не забудь снять объявление: {escape(url)}")
+    if posts.bazaraki_to_remove:
+        lines.append("🧹 Помощник на Mac снимет объявления: " + escape(", ".join(posts.bazaraki_to_remove)))
     return "\n".join(lines)
 
 
@@ -476,3 +477,44 @@ def inquiry_line(inq, item, buyer) -> str:
     what = f"#{item.id} {escape(item.display_name)}" if item else "❓ не определено"
     who = f"@{escape(buyer.username)}" if buyer and buyer.username else escape((buyer.display_name if buyer else None) or "?")
     return f"{inq.created_at:%d.%m %H:%M} · {who} → {what}"
+
+
+# ---------- marketplaces (helper on the Mac) ----------
+
+MK_STATUS = {"waiting": "в очереди", "filling": "заполняется", "filled": "ждёт тебя", "approved": "публикуется",
+             "published": "опубликовано", "failed": "не получилось", "cancelled": "пропущено",
+             "removal_needed": "снять", "removing": "снимается", "removed": "снято"}
+
+
+def mk_head(ext, item, platform_name: str) -> str:
+    return f"<b>{escape(platform_name)}</b> · #{item.id} {escape(item.display_name)} — {fmt_eur(item.price)}"
+
+
+def mk_filled(ext, item, platform_name: str, note: str | None) -> str:
+    lines = [f"🧾 {mk_head(ext, item, platform_name)}", "Форма заполнена — проверь скриншот."]
+    if note:
+        lines.append(f"<i>{escape(note)}</i>")
+    lines.append("«✅ Опубликовать» — помощник нажмёт кнопку на сайте.")
+    return "\n".join(lines)
+
+
+def platforms_status(rows, seen, settings) -> str:
+    from app.services.marketplaces import NAMES
+
+    if seen is None:
+        helper = "⚪️ помощник на Mac ещё ни разу не подключался"
+    else:
+        ago = (datetime.now(UTC) - seen).total_seconds() / 60
+        helper = ("🟢 помощник на связи" if ago < 5 else f"🟡 помощник был {_cy(seen)}")
+    lines = ["<b>Площадки</b>", helper, ""]
+    for r in rows:
+        c = r.counts
+        state = "🟢" if r.enabled else "⏸"
+        waiting = c.get("waiting", 0) + c.get("filling", 0) + c.get("filled", 0) + c.get("approved", 0)
+        lines.append(f"{state} <b>{NAMES[r.platform]}</b>: опубликовано {c.get('published', 0)} · в очереди {waiting}"
+                     + (f" · не получилось {c['failed']}" if c.get("failed") else "")
+                     + f" · за сутки {r.today}/{settings.marketplace_daily_limit}")
+    lines.append(f"\n<i>До {settings.marketplace_daily_limit} объявлений в сутки на площадку, пауза "
+                 f"{settings.marketplace_gap_min_minutes}–{settings.marketplace_gap_max_minutes} мин, "
+                 f"{settings.publish_window_start}:00–{settings.publish_window_end}:00.</i>")
+    return "\n".join(lines)

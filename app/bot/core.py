@@ -316,6 +316,42 @@ class BotCore:
     async def publisher_alert(self, text: str) -> None:
         await self.send(text)
 
+    # ---------- api.helper.HelperNotifier (marketplaces) ----------
+
+    async def marketplace_filled(self, listing_id: int, screenshot_path: str | None, note: str | None) -> None:
+        from app.services import marketplaces
+
+        ext, item = await marketplaces.listing_label(listing_id)
+        text = texts.mk_filled(ext, item, marketplaces.NAMES[ext.platform], note)
+        buttons = keyboards.mk_filled(listing_id)
+        if screenshot_path:
+            await self.client.send_file(self.admin, screenshot_path, caption=text, parse_mode="html", buttons=buttons,
+                                        force_document=False)
+        else:
+            await self.send(text, buttons=buttons)
+
+    async def marketplace_published(self, listing_id: int) -> None:
+        from app.services import marketplaces
+
+        ext, item = await marketplaces.listing_label(listing_id)
+        link = f' → <a href="{texts.escape(ext.url)}">объявление</a>' if ext.url else ""
+        await self.send(f"📢 Опубликовано: {texts.mk_head(ext, item, marketplaces.NAMES[ext.platform])}{link}")
+
+    async def marketplace_failed(self, listing_id: int, error: str, final: bool) -> None:
+        from app.services import marketplaces
+
+        if not final:
+            return  # the helper retries by itself later
+        ext, item = await marketplaces.listing_label(listing_id)
+        await self.send(f"⚠️ {texts.mk_head(ext, item, marketplaces.NAMES[ext.platform])}\n"
+                        f"Не получилось: {texts.escape(error[:300])}", buttons=keyboards.mk_failed(listing_id))
+
+    async def marketplace_removed(self, listing_id: int) -> None:
+        from app.services import marketplaces
+
+        ext, item = await marketplaces.listing_label(listing_id)
+        await self.send(f"🧹 Снято: {texts.mk_head(ext, item, marketplaces.NAMES[ext.platform])}")
+
     # ---------- post_watch.WatchNotifier ----------
 
     async def post_removed(self, removal) -> None:

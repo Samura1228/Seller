@@ -157,3 +157,23 @@ def pick_version(item_id: int, rows) -> list[list[Button]]:
     out = [[Button.inline(f"{n}. {chat_name(chat)}"[:60], f"pe:{pub.id}".encode())] for n, (pub, chat) in enumerate(rows, 1)]
     out.append([Button.inline("← Назад", f"pv:back:{item_id}".encode())])
     return out
+
+
+def mk_filled(listing_id: int) -> list[list[Button]]:
+    return [[Button.inline("✅ Опубликовать", f"mk:pub:{listing_id}".encode()),
+             Button.inline("❌ Не публиковать", f"mk:cancel:{listing_id}".encode())]]
+
+
+def mk_failed(listing_id: int) -> list[list[Button]]:
+    return [[Button.inline("🔁 Попробовать снова", f"mk:retry:{listing_id}".encode()),
+             Button.inline("⏭ Пропустить", f"mk:skip:{listing_id}".encode())]]
+
+
+def platforms(rows) -> list[list[Button]]:
+    from app.services.marketplaces import NAMES
+
+    out = [[Button.inline(("⏸ Выключить " if r.enabled else "▶️ Включить ") + NAMES[r.platform],
+                          f"mp:toggle:{r.platform.value}".encode())] for r in rows]
+    out.append([Button.inline("📥 Поставить в очередь все утверждённые", b"mp:all:0"),
+                Button.inline("🔄", b"mp:refresh:0")])
+    return out
