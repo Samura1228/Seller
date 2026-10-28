@@ -54,7 +54,7 @@ HELP = (
     "/platforms — Bazaraki, Kyma, Facebook Marketplace: очередь, вкл/выкл, статус помощника на Mac\n\n"
     "<b>Отклики и продажи</b>\n"
     "Отклики из лички и ответы на посты приходят сюда автоматически, с кнопками «Бронь» и «Продано».\n"
-    "/inquiries — последние отклики\n"
+    "/inquiries — последние отклики · /inquiry 5 — открыть карточку (бронь, продано, «💬 Предложить ответ»)\n"
     "/item 12 — бронь, продажа или снятие с продажи вручную (посты в чатах удалятся сами)"
 )
 
@@ -476,7 +476,7 @@ def withdrawn_done(item, posts) -> str:
 def inquiry_line(inq, item, buyer) -> str:
     what = f"#{item.id} {escape(item.display_name)}" if item else "❓ не определено"
     who = f"@{escape(buyer.username)}" if buyer and buyer.username else escape((buyer.display_name if buyer else None) or "?")
-    return f"{inq.created_at:%d.%m %H:%M} · {who} → {what}"
+    return f"{inq.created_at:%d.%m %H:%M} · {who} → {what}  /inquiry_{inq.id}"
 
 
 # ---------- marketplaces (helper on the Mac) ----------
@@ -518,3 +518,14 @@ def platforms_status(rows, seen, settings) -> str:
                  f"{settings.marketplace_gap_min_minutes}–{settings.marketplace_gap_max_minutes} мин, "
                  f"{settings.publish_window_start}:00–{settings.publish_window_end}:00.</i>")
     return "\n".join(lines)
+
+
+def reply_suggestion(item, buyer, suggestion) -> str:
+    about = f" · #{item.id} {escape(item.display_name)}" if item else ""
+    lines = [f"💬 <b>Вариант ответа</b> для {buyer_name(buyer)}{about}",
+             f"<code>{escape(suggestion.text)}</code>",
+             f"<i>{escape(suggestion.tip)}</i>"]
+    if suggestion.below_min:
+        lines.append("⚠️ В ответе цена ниже твоего минимума — проверь, прежде чем отправлять.")
+    lines.append("Нажми на текст, чтобы скопировать, и отправь сам с аккаунта для продаж.")
+    return "\n\n".join(lines)

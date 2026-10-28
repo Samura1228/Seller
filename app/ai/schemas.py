@@ -108,6 +108,12 @@ class FormPlan(BaseModel):
     note_ru: str = Field(description="One short line for the owner in Russian: what you did or what blocks you")
 
 
+class ReplySuggestion(BaseModel):
+    reply: str = Field(description="The message to send to the buyer, in the buyer's language, ready to paste")
+    tip_ru: str = Field(description="One short line in Russian for the seller: the tactic of this reply")
+    price_named_eur: int | None = Field(description="The price this reply names or agrees to, if any; null otherwise")
+
+
 class EditedPost(BaseModel):
     text: str = Field(description="The complete edited post: title line, blank line, body. Same format as the input")
 

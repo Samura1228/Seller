@@ -10,7 +10,7 @@ from app.bot import keyboards, texts
 from app.bot.core import BotCore, PendingInput
 from app.db.models import Buyer, Inquiry, Item
 from app.db.session import session_scope
-from app.services import inquiries, pipeline, pricing, recognition, sales
+from app.services import inquiries, pipeline, pricing, recognition, replies, sales
 from app.services.listing import fmt_eur
 
 
@@ -46,6 +46,23 @@ async def render_item(core: BotCore, item_id: int):
 async def _refresh_item_card(core: BotCore, event, item_id: int) -> None:
     _, text, buttons = await render_item(core, item_id)
     await event.edit(text, parse_mode="html", buttons=buttons, link_preview=False)
+
+
+_last_suggestion: dict[int, str] = {}  # inquiry id → last suggested text, so "another variant" differs
+
+
+async def _suggest_reply(core: BotCore, inquiry_id: int) -> None:
+    try:
+        sug = await replies.suggest(inquiry_id, core.userbot, _last_suggestion.get(inquiry_id))
+    except Exception as e:  # noqa: BLE001 - shown to the owner
+        await core.send(f"⚠️ Не получилось предложить ответ: {texts.escape(type(e).__name__)}")
+        return
+    _last_suggestion[inquiry_id] = sug.text
+    async with session_scope() as s:
+        inq = await s.get(Inquiry, inquiry_id)
+        item = await s.get(Item, inq.item_id) if inq.item_id else None
+        buyer = await s.get(Buyer, inq.buyer_id) if inq.buyer_id else None
+    await core.send(texts.reply_suggestion(item, buyer, sug), buttons=keyboards.reply_suggestion(inquiry_id, buyer))
 
 
 def register(core: BotCore) -> None:
@@ -109,6 +126,9 @@ def register(core: BotCore) -> None:
                 await inquiries.assign_item(inq_id, arg)
                 await event.answer("Готово")
                 await core.refresh_inquiry(inq_id)
+            case "reply":
+                await event.answer("Пишу вариант ответа…")
+                core.spawn(_suggest_reply(core, inq_id))
             case "spam":
                 await inquiries.dismiss(inq_id)
                 await event.edit("🚫 Сообщение не про продажу — скрыл.", buttons=None)
@@ -186,6 +206,17 @@ def register(core: BotCore) -> None:
             await core.send("Откликов пока нет.")
             return
         await core.send("<b>Последние отклики</b>\n" + "\n".join(texts.inquiry_line(i, it, b) for i, it, b in rows))
+
+    @core.client.on(events.NewMessage(from_users=[core.admin], pattern=r"^/inquiry[_ ]+(\d+)"))
+    async def on_inquiry_card(event) -> None:
+        inquiry_id = int(event.pattern_match.group(1))
+        async with session_scope() as s:
+            exists = await s.get(Inquiry, inquiry_id) is not None
+        if not exists:
+            await core.send("Отклик не найден. Список: /inquiries")
+            return
+        text, buttons = await core.render_inquiry(inquiry_id)
+        await core.send(text, buttons=buttons)
 
 
 async def handle_sold_price_input(core: BotCore, pending: PendingInput, text: str, event) -> None:

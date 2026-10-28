@@ -193,9 +193,10 @@ async def test_helper_api(world, ai, daytime, monkeypatch):
         assert events[-1] == ("published", lid) and await _status(lid) == ExternalStatus.PUBLISHED
 
     rows, seen = await marketplaces.status()
-    assert seen is not None
-    body = texts.platforms_status(rows, seen, get_settings())
+    assert seen == NOON + timedelta(hours=6)  # the helper's last call, as the frozen clock saw it
+    body = texts.platforms_status(rows, datetime.now(UTC), get_settings())
     assert "помощник на связи" in body and "Bazaraki" in body
+    assert "помощник был" in texts.platforms_status(rows, datetime.now(UTC) - timedelta(hours=3), get_settings())
     assert keyboards.platforms(rows)[-1][0].text.startswith("📥")
 
 

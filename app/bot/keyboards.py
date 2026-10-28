@@ -94,13 +94,16 @@ def inquiry(inq, item, buyer, chat, candidates) -> list[list[Button]]:
         links.append(Button.url("✉️ Открыть чат", f"https://t.me/{buyer.username}"))
     if chat is not None and (link := message_link(chat.tg_chat_id, chat.username, inq.tg_message_id, chat.forum_topic_id)):
         links.append(Button.url("💬 К ответу в чате", link))
+    reply = [Button.inline("💬 Предложить ответ", f"iq:reply:{inq.id}".encode())]
     if item is None:
         if inq.status != InquiryStatus.HANDLED:
             for c in candidates:
                 rows.append([Button.inline(f"#{c.id} {c.display_name}"[:60], f"iq:set:{inq.id}:{c.id}".encode())])
+            rows.append(reply)
             rows.append([Button.inline("🚫 Не про продажу", f"iq:spam:{inq.id}".encode())])
         return [*rows, links] if links else rows
     if item.status in (ItemStatus.READY, ItemStatus.PUBLISHED, ItemStatus.HAS_INQUIRIES, ItemStatus.RESERVED):
+        rows.append(reply)
         rows.append(_item_sale_row("iq", inq.id, item))
         rows.append([Button.inline("🔁 Это другая вещь", f"iq:pick:{inq.id}".encode())])
     if links:
@@ -177,3 +180,10 @@ def platforms(rows) -> list[list[Button]]:
     out.append([Button.inline("📥 Поставить в очередь все утверждённые", b"mp:all:0"),
                 Button.inline("🔄", b"mp:refresh:0")])
     return out
+
+
+def reply_suggestion(inquiry_id: int, buyer) -> list[list[Button]]:
+    rows = [[Button.inline("🔄 Другой вариант", f"iq:reply:{inquiry_id}".encode())]]
+    if buyer is not None and buyer.username:
+        rows.append([Button.url("✉️ Открыть чат", f"https://t.me/{buyer.username}")])
+    return rows
