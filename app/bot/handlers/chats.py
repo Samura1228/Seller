@@ -66,6 +66,16 @@ def apply_rules_edit(core: BotCore, chat_id: int, correction: str) -> bool:
     )
 
 
+def apply_versions_edit(core: BotCore, item_id: int, instruction: str, publication_id: int | None = None) -> bool:
+    """Edits one per-chat version or all of them in background; the versions card is re-sent below."""
+    return core.run_on(
+        ("pv", item_id),
+        lambda: core._approval_id(ApprovalKind.CHAT_PREVIEWS, item_id=item_id),
+        lambda: versions.edit_drafts(item_id, instruction, publication_id),
+        move_down=True,
+    )
+
+
 async def _open_chat_card(core: BotCore, chat_id: int) -> None:
     """Shows the chat card (creating an approval for it if the chat has none open)."""
     async with session_scope() as s:
@@ -470,6 +480,23 @@ def register(core: BotCore) -> None:
                 await event.answer("Переписываю…")
                 core.run_on(key, lambda: core._approval_id(ApprovalKind.CHAT_PREVIEWS, item_id=item_id),
                             lambda: versions.regenerate(item_id))
+            case "editall":
+                async with session_scope() as s:
+                    item = await s.get(Item, item_id)
+                core.pending = PendingInput(kind="versions_edit", item_id=item_id)
+                await core.send(texts.ASK_VERSIONS_EDIT.format(name=texts.escape(item.display_name)) + "\n\n/cancel — отмена")
+                await event.answer()
+            case "editone":
+                async with session_scope() as s:
+                    rows = await versions.drafts(s, item_id)
+                if not rows:
+                    await event.answer("Версий нет", alert=True)
+                    return
+                await event.edit(buttons=keyboards.pick_version(item_id, rows))
+                await event.answer(texts.PICK_VERSION)
+            case "back":
+                await event.edit(buttons=keyboards.previews(item_id))
+                await event.answer()
             case "later":
                 if aid:
                     await core.skip(aid)
@@ -484,6 +511,20 @@ def register(core: BotCore) -> None:
                 await core.show_next()
             case _:
                 await event.answer()
+
+    @core.client.on(events.CallbackQuery(data=re.compile(rb"^pe:(\d+)$"), func=admin_only))
+    async def on_pick_version(event) -> None:
+        pub_id = int(event.data_match.group(1))
+        async with session_scope() as s:
+            pub = await s.get(Publication, pub_id)
+            chat = await s.get(Chat, pub.chat_id) if pub else None
+        if pub is None or chat is None:
+            await event.answer("Версия не найдена", alert=True)
+            return
+        await event.edit(buttons=keyboards.previews(pub.item_id))
+        core.pending = PendingInput(kind="version_edit", item_id=pub.item_id, extra={"publication_id": pub_id})
+        await core.send(texts.ASK_VERSION_EDIT.format(chat=texts.escape(texts.chat_name(chat))) + "\n\n/cancel — отмена")
+        await event.answer()
 
     # ---------- publisher ----------
 

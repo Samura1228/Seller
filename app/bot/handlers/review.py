@@ -159,6 +159,8 @@ def register(core: BotCore) -> None:
         func=lambda e: bool(e.raw_text) and not e.raw_text.startswith("/") and e.message.document is None,
     ))
     async def on_text(event: events.NewMessage.Event) -> None:
+        if event.is_reply and await _reply_to_versions(core, event):
+            return
         pending = core.pending
         if pending is None:
             await event.reply(texts.NO_PENDING_INPUT)
@@ -195,6 +197,13 @@ def register(core: BotCore) -> None:
             started = apply_rules_edit(core, item_id, text)
             await event.reply("⏳ Применяю, карточка чата обновится ниже…" if started else texts.BUSY)
 
+        elif pending.kind in ("versions_edit", "version_edit"):
+            from app.bot.handlers.chats import apply_versions_edit
+
+            core.pending = None
+            started = apply_versions_edit(core, item_id, text, pending.extra.get("publication_id"))
+            await event.reply("⏳ Применяю, версии обновятся ниже…" if started else texts.BUSY)
+
         elif pending.kind in ("fix", "edit"):
             core.pending = None
             if pending.kind == "fix":
@@ -202,3 +211,28 @@ def register(core: BotCore) -> None:
             else:
                 started = core.run_on_item(item_id, lambda: pipeline.rewrite(item_id, text, core), move_down=True)
             await event.reply("⏳ Применяю, карточка обновится ниже…" if started else texts.BUSY)
+
+
+ALL_VERSIONS = re.compile(r"во\s+всех|всех\s+(верси|объявлен|пост|текст)|все\s+(верси|объявлен|пост|текст)|везде|\ball\b", re.I)
+
+
+async def _reply_to_versions(core: BotCore, event) -> bool:
+    """A reply to a version message edits that version; a reply to the versions card edits all of them."""
+    from app.bot.handlers.chats import apply_versions_edit
+
+    reply_id, text = event.reply_to_msg_id, event.raw_text.strip()
+    pub = await versions.find_draft_by_preview(reply_id)
+    if pub is not None:
+        item_id, pub_id = pub.item_id, (None if ALL_VERSIONS.search(text) else pub.id)
+    else:
+        async with session_scope() as s:
+            approval = await s.scalar(select(Approval).where(
+                Approval.kind == ApprovalKind.CHAT_PREVIEWS, Approval.bot_message_id == reply_id,
+                Approval.status == ApprovalStatus.PENDING))
+        if approval is None:
+            return False
+        item_id, pub_id = approval.item_id, None
+    started = apply_versions_edit(core, item_id, text, pub_id)
+    what = "эту версию" if pub_id else "все версии"
+    await event.reply(f"⏳ Правлю {what}, обновлённые версии придут ниже…" if started else texts.BUSY)
+    return True

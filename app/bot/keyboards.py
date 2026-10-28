@@ -59,6 +59,8 @@ def previews(item_id: int) -> list[list[Button]]:
     i = item_id
     return [
         [Button.inline("✅ Одобрить все версии", f"pv:ok:{i}".encode())],
+        [Button.inline("📝 Правка во всех версиях", f"pv:editall:{i}".encode()),
+         Button.inline("✏️ Правка одной версии", f"pv:editone:{i}".encode())],
         [Button.inline("🔄 Переписать", f"pv:regen:{i}".encode()), Button.inline("⏭ Позже", f"pv:later:{i}".encode())],
         [Button.inline("🗑 Не публиковать", f"pv:drop:{i}".encode())],
     ]
@@ -147,3 +149,11 @@ def post_removed(r) -> list[list[Button]]:
     rows.append([Button.inline("⏸ Не публиковать в этот чат", f"pw:off:{r.publication_id}".encode()),
                  Button.inline("👌 Понятно", f"pw:ok:{r.publication_id}".encode())])
     return rows
+
+
+def pick_version(item_id: int, rows) -> list[list[Button]]:
+    from app.bot.texts import chat_name
+
+    out = [[Button.inline(f"{n}. {chat_name(chat)}"[:60], f"pe:{pub.id}".encode())] for n, (pub, chat) in enumerate(rows, 1)]
+    out.append([Button.inline("← Назад", f"pv:back:{item_id}".encode())])
+    return out

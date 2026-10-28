@@ -78,6 +78,10 @@ class ChatVersion(BaseModel):
     hashtags: list[str] = Field(description="Hashtags for this chat, with #. Empty if the chat uses none")
 
 
+class EditedPost(BaseModel):
+    text: str = Field(description="The complete edited post: title line, blank line, body. Same format as the input")
+
+
 class InquiryMatch(BaseModel):
     sales_related: bool = Field(description="False for spam, ads, greetings with no buying interest, unrelated chat")
     item_id: int | None = Field(description="id from the item list the buyer is asking about; null if unclear")

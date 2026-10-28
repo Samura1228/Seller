@@ -74,6 +74,13 @@ BAD_PRICE = "Не понял цену. Пример: <code>120</code> или <co
 BAD_QTY = "Нужно целое число от 1 до 999."
 CANCELLED = "Ок, отменил."
 NO_PENDING_INPUT = "Отправь .zip с фото или используй /help."
+ASK_VERSIONS_EDIT = (
+    "📝 Что изменить <b>во всех версиях</b> «{name}»?\n"
+    "Например: «убери упоминание о мелких замечаниях», «короче». Правка попадёт и в основной текст и запомнится — "
+    "версии для новых чатов тоже её учтут."
+)
+ASK_VERSION_EDIT = "✏️ Что изменить в версии для <b>{chat}</b>?\nНапример: «убери последнее предложение», «короче»."
+PICK_VERSION = "Какую версию поправить?"
 QUEUE_EMPTY = "Очередь подтверждений пуста ✅"
 NOT_FOUND = "Вещь не найдена."
 BUSY = "⏳ Уже обновляю эту вещь, подожди."
@@ -257,8 +264,9 @@ def chat_line(chat) -> str:
     return f"{state} #{chat.id} {chat_name(chat)} · {LANG_RU[effective_language(chat).value]}{last}"
 
 
-def previews_card(item, rows, seller: str, *, busy: bool = False) -> tuple[list[str], str]:
-    """Returns (messages to send before the card, card text). Each version is shown exactly as it will be posted."""
+def previews_card(item, rows, seller: str, *, busy: bool = False) -> tuple[list[tuple[int, str]], str]:
+    """Returns ([(publication id, message)] to send before the card, card text).
+    Each version is shown exactly as it will be posted."""
     from app.services.listing import render_publication
 
     blocks = []
@@ -267,13 +275,18 @@ def previews_card(item, rows, seller: str, *, busy: bool = False) -> tuple[list[
         blocks.append(f"📍 <b>{chat_name(chat)}</b> · {pub.language.value.upper()} · {len(post)} симв.\n"
                       f"<blockquote>{escape(post)}</blockquote>")
     head = f"<b>#{item.id} · {escape(item.display_name)}</b> — {fmt_eur(item.price)}\n📝 Версии постов для чатов"
-    tail = "\n\nПроверь тексты. После одобрения посты встанут в очередь публикации."
-    if busy:
-        tail = f"\n\n{UPDATING}"
-    one = head + "\n\n" + "\n\n".join(blocks) + tail
+    def tail(split: bool) -> str:
+        if busy:
+            return f"\n\n{UPDATING}"
+        how = ("ответь на сообщение с версией — изменится только она; ответь на эту карточку — изменятся все версии."
+               if split else "ответь на эту карточку — изменятся все версии; одну версию — кнопкой «✏️ Правка одной версии».")
+        return f"\n\nПроверь тексты. После одобрения посты встанут в очередь публикации.\n<i>Поправить: {how}</i>"
+
+    one = head + "\n\n" + "\n\n".join(blocks) + tail(False)
     if len(one) <= 4000:
         return [], one
-    return [b if len(b) <= 4000 else b[:3990] + "…" for b in blocks], head + f"\n\nВерсии выше ⬆️ ({len(blocks)} шт.)" + tail
+    before = [(pub.id, b if len(b) <= 4000 else b[:3990] + "…") for (pub, _), b in zip(rows, blocks, strict=True)]
+    return before, head + f"\n\nВерсии выше ⬆️ ({len(blocks)} шт.)" + tail(True)
 
 
 def posted(item_id: int, item_name: str, chat_title: str, link: str | None) -> str:

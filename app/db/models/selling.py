@@ -70,6 +70,7 @@ class Publication(TimestampMixin, Base):
     posted_at: Mapped[datetime | None]
     tg_message_ids: Mapped[list[int]] = mapped_column(ARRAY(sa.BigInteger), default=list)  # album => several
     text_message_id: Mapped[int | None] = mapped_column(sa.BigInteger)  # the message holding the text (caption)
+    preview_message_id: Mapped[int | None] = mapped_column(sa.BigInteger)  # bot message showing this draft (replies edit it)
     cycle_no: Mapped[int] = mapped_column(default=1)
     deleted_at: Mapped[datetime | None]
     error: Mapped[str | None] = mapped_column(sa.Text)

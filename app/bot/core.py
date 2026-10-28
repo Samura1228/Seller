@@ -27,7 +27,7 @@ OPEN = (ApprovalStatus.PENDING, ApprovalStatus.SKIPPED)
 
 @dataclass
 class PendingInput:
-    kind: str  # price | fix | edit | qty | chat_rules | sold_price
+    kind: str  # price | fix | edit | qty | chat_rules | sold_price | versions_edit | version_edit
     item_id: int  # item id, or chat id for chat_rules
     extra: dict = field(default_factory=dict)
 
@@ -37,7 +37,7 @@ class Card:
     text: str
     buttons: Any
     photos: list[str] = field(default_factory=list)
-    before: list[str] = field(default_factory=list)  # extra messages sent above the card (long previews)
+    before: list[tuple[int | None, str]] = field(default_factory=list)  # (publication id, message) above the card
 
 
 class BotCore:
@@ -128,8 +128,10 @@ class BotCore:
             return
         if with_photos and card.photos:
             await self.client.send_file(self.admin, card.photos)
-        for extra in card.before:
-            await self.send(extra)
+        for pub_id, extra in card.before:
+            sent = await self.send(extra)
+            if pub_id is not None:
+                await self._remember_preview(pub_id, sent.id)
         msg = await self.send(card.text, buttons=card.buttons)
         async with session_scope() as s:
             a = await s.get(Approval, approval_id)
@@ -137,6 +139,16 @@ class BotCore:
                 self.spawn(self.edit(a.bot_message_id, "Карточка обновлена ниже ⬇️"))
             a.status = ApprovalStatus.PENDING
             a.bot_message_id = msg.id
+
+    async def _remember_preview(self, pub_id: int, msg_id: int) -> None:
+        """A reply to this message edits this version; the previous preview of it is marked as outdated."""
+        async with session_scope() as s:
+            pub = await s.get(Publication, pub_id)
+            if pub is None:
+                return
+            old, pub.preview_message_id = pub.preview_message_id, msg_id
+        if old and old != msg_id:
+            self.spawn(self.edit(old, "Версия обновлена ниже ⬇️"))
 
     async def refresh_approval(self, approval_id: int) -> None:
         async with session_scope() as s:

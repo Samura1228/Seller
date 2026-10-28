@@ -9,14 +9,15 @@ from sqlalchemy.orm import selectinload
 
 from app.ai import prompts
 from app.ai.client import structured
-from app.ai.schemas import ChatVersion
+from app.ai.schemas import ChatVersion, EditedPost
 from app.config import get_settings
-from app.db.enums import ApprovalKind, ApprovalStatus, ItemStatus, Language, PublicationStatus
+from app.db.enums import ApprovalKind, ApprovalStatus, ItemStatus, Language, PublicationStatus, TextStatus
 from app.db.models import Approval, Chat, Item, Publication
 from app.db.session import session_scope
 from app.services import chats as chat_service
-from app.services.copywriting import master_text, text_rules_block
+from app.services.copywriting import master_text, text_rules_block, write_master
 from app.services.listing import footer, strip_emoji
+from app.services.recognition import load_item
 
 log = logging.getLogger(__name__)
 
@@ -150,6 +151,53 @@ async def approve(item_id: int) -> int:
             p.status = PublicationStatus.APPROVED
         await _resolve(s, item_id, ApprovalStatus.APPROVED)
         return len(rows)
+
+
+EDIT_CONCURRENCY = 4
+
+
+async def edit_drafts(item_id: int, instruction: str, publication_id: int | None = None) -> int:
+    """Owner's edit of per-chat versions. One version (publication_id) or all of them; an edit of all versions
+    also goes into the master text and is remembered, so versions for new chats follow it too."""
+    instruction = instruction.strip()
+    if publication_id is None:
+        async with session_scope() as s:
+            item = await load_item(s, item_id)
+            if master_text(item, Language.RU) and master_text(item, Language.EN):
+                await write_master(s, item, instruction)
+                for t in item.texts:
+                    t.status = TextStatus.APPROVED  # the item stays approved: this is a refinement, not a new draft
+    async with session_scope() as s:
+        item = await s.get(Item, item_id)
+        rules = text_rules_block(item) if item else ""
+        q = select(Publication).where(Publication.item_id == item_id, Publication.status == PublicationStatus.DRAFT)
+        if publication_id is not None:
+            q = q.where(Publication.id == publication_id)
+        jobs = [(p.id, p.text) for p in await s.scalars(q)]
+    settings = get_settings()
+    sem = asyncio.Semaphore(EDIT_CONCURRENCY)
+
+    async def one(pub_id: int, text: str) -> tuple[int, str]:
+        async with sem:
+            out = await structured(
+                purpose="version_edit", output=EditedPost, system=prompts.load("version_edit"),
+                content=(f"{rules}\n\n" if rules else "") + f"[Post]\n{text}\n\n[Owner's instruction]\n{instruction}",
+                item_id=item_id, model=settings.ai_model_fast, max_tokens=1500)
+            return pub_id, strip_emoji(out.text)
+
+    results = await asyncio.gather(*(one(pid, t) for pid, t in jobs))
+    async with session_scope() as s:
+        for pub_id, text in results:
+            pub = await s.get(Publication, pub_id)
+            if pub is not None and pub.status == PublicationStatus.DRAFT and text:
+                pub.text = text
+    return len(results)
+
+
+async def find_draft_by_preview(message_id: int) -> Publication | None:
+    async with session_scope() as s:
+        return await s.scalar(select(Publication).where(
+            Publication.preview_message_id == message_id, Publication.status == PublicationStatus.DRAFT))
 
 
 async def regenerate(item_id: int) -> int:
