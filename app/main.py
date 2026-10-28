@@ -10,7 +10,7 @@ import uvicorn
 from app.api.helper import set_notifier
 from app.api.main import api
 from app.bot.core import BotCore, recover_interrupted
-from app.bot.handlers import chats, commands, intake, marketplaces, review, sales
+from app.bot.handlers import agent, chats, commands, intake, marketplaces, review, sales
 from app.config import get_settings
 from app.db.lock import acquire_runner_lock
 from app.services.post_watch import PostWatcher
@@ -26,6 +26,20 @@ async def _scan_unread(listener: InquiryListener) -> None:
             logging.info("Processed %d unread private chats after start", n)
     except Exception:
         logging.exception("Unread scan failed")
+
+
+async def set_commands_menu(core: BotCore) -> None:
+    """The list under "/" in the chat with the bot."""
+    from telethon import functions, types
+
+    from app.bot.texts import COMMANDS
+
+    try:
+        await core.client(functions.bots.SetBotCommandsRequest(
+            scope=types.BotCommandScopeDefault(), lang_code="",
+            commands=[types.BotCommand(command=c, description=d) for c, d in COMMANDS]))
+    except Exception:  # noqa: BLE001 - a missing menu must not stop the bot
+        logging.exception("Couldn't set the bot commands menu")
 
 
 async def main() -> None:
@@ -56,7 +70,8 @@ async def main() -> None:
 
     # 3. Bot-panel.
     core = BotCore(settings)
-    intake.register(core)  # registered first: the zip handler stops propagation before the text handler
+    agent.register(core)  # first: in /agent mode it takes every message (photos too) before other handlers
+    intake.register(core)  # the zip handler stops propagation before the text handler
     commands.register(core)
     review.register(core)
     chats.register(core)
@@ -66,6 +81,7 @@ async def main() -> None:
     await core.client.start(bot_token=settings.bot_token)
     me = await core.client.get_me()
     logging.info("Bot started as @%s", me.username)
+    await set_commands_menu(core)
     if problem := settings.storage_problem():
         logging.error("Storage misconfigured: %s", problem)
         await core.send(f"⚠️ <b>Настройка хранилища:</b> {problem}")

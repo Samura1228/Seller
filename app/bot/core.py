@@ -52,6 +52,7 @@ class BotCore:
         self.userbot: TelegramClient | None = None
         self.publisher = None  # app.services.publisher.Publisher, set in main when the userbot is configured
         self.post_watcher = None  # app.services.post_watch.PostWatcher, same
+        self.agent = None  # app.services.agent.AgentSession while /agent mode is on
         self.scan: dict | None = None  # /scanchats selection state
         self._queue_lock = asyncio.Lock()
         self._tasks: set[asyncio.Task] = set()
@@ -292,6 +293,9 @@ class BotCore:
         return text, keyboards.inquiry(inq, item, buyer, chat, candidates)
 
     async def inquiry_new(self, inquiry_id: int, is_new: bool) -> None:
+        from app.services import sheets
+
+        self.spawn(sheets.push_inquiry(inquiry_id))  # Google Sheet: «Отклики» + «Покупатели» (no-op if not set up)
         text, buttons = await self.render_inquiry(inquiry_id)
         msg = await self.send(text, buttons=buttons)
         async with session_scope() as s:

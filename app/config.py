@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     marketplace_gap_min_minutes: int = 30  # between ads on one platform
     marketplace_gap_max_minutes: int = 90
 
+    # Google Sheet with inquiries and buyers (Apps Script web app, see scripts/google_sheet.gs)
+    sheets_webhook_url: str | None = None
+    sheets_secret: str | None = None
+
     # HTTP
     port: int = 8080
     log_level: str = "INFO"

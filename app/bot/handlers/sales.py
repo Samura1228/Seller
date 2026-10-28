@@ -10,7 +10,7 @@ from app.bot import keyboards, texts
 from app.bot.core import BotCore, PendingInput
 from app.db.models import Buyer, Inquiry, Item
 from app.db.session import session_scope
-from app.services import inquiries, pipeline, pricing, recognition, replies, sales
+from app.services import inquiries, pipeline, pricing, recognition, replies, sales, sheets
 from app.services.listing import fmt_eur
 
 
@@ -20,6 +20,8 @@ async def do_sale(core: BotCore, item_id: int, price: Decimal | None, buyer_id: 
     except sales.SaleError as e:
         await core.send(f"⚠️ {texts.escape(str(e))}")
         return
+    if buyer_id:
+        core.spawn(sheets.push_buyer(buyer_id))  # «Купил» in the buyers sheet
     if res.sold_out:
         posts = await sales.remove_posts(core.userbot, item_id)
     else:
@@ -206,6 +208,20 @@ def register(core: BotCore) -> None:
             await core.send("Откликов пока нет.")
             return
         await core.send("<b>Последние отклики</b>\n" + "\n".join(texts.inquiry_line(i, it, b) for i, it, b in rows))
+
+    @core.client.on(events.NewMessage(from_users=[core.admin], pattern=r"^/sheetsync\b"))
+    async def on_sheetsync(event) -> None:
+        if not sheets.enabled():
+            await core.send("Google-таблица не подключена: задай <code>SHEETS_WEBHOOK_URL</code> и "
+                            "<code>SHEETS_SECRET</code> на Railway (инструкция — в README, раздел «Google-таблица»).")
+            return
+        await core.send("📊 Выгружаю все отклики и покупателей в Google-таблицу…")
+        try:
+            n_inq, n_buyers = await sheets.sync_all()
+        except Exception as e:  # noqa: BLE001 - shown to the owner
+            await core.send(f"⚠️ Не получилось: {texts.escape(f'{type(e).__name__}: {e}'[:300])}")
+            return
+        await core.send(f"📊 Готово: откликов {n_inq}, покупателей {n_buyers}.")
 
     @core.client.on(events.NewMessage(from_users=[core.admin], pattern=r"^/inquiry[_ ]+(\d+)"))
     async def on_inquiry_card(event) -> None:
