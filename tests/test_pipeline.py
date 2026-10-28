@@ -150,7 +150,7 @@ async def test_full_stage1_flow(tmp_path, mock_ai):
         item = await recognition.load_item(s, hp)
         assert item.min_price == Decimal(176)  # keeps the 150/170 ratio
         assert all(q["field"] != "quantity" for q in item.uncertain_fields)
-        assert "📦 В наличии: 2 шт." in texts.review_card(item, None, settings.seller_username)
+        assert "\nВ наличии: 2 шт." in texts.review_card(item, None, settings.seller_username)
 
     await pipeline.correct(hp, "это XM5", notifier)
     async with session_scope() as s:

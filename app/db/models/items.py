@@ -51,6 +51,7 @@ class Item(TimestampMixin, Base):
     condition_notes: Mapped[str | None] = mapped_column(sa.Text)  # defects, honestly
     included: Mapped[list[str]] = mapped_column(JSONB, default=list)  # box, charger, ...
     my_notes: Mapped[str | None] = mapped_column(sa.Text)  # corrections / facts I added
+    text_rules: Mapped[list[str]] = mapped_column(JSONB, default=list)  # my text edits, kept for every rewrite
 
     quantity_total: Mapped[int] = mapped_column(default=1)
     quantity_sold: Mapped[int] = mapped_column(default=0)

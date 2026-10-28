@@ -195,7 +195,7 @@ async def test_stage2_flow(monkeypatch, mock_ai):
     result = await pub.tick()
     assert result.startswith("опубликовано: Наушники")  # pricier item first
     tg_chat, text_sent, photos, with_photos = sender.calls[0]
-    assert "💶 Цена: 150 €" in text_sent and "@limassol_seller" in text_sent and text_sent.endswith("#продам #электроника")
+    assert "\nЦена: 150 €" in text_sent and "@limassol_seller" in text_sent and text_sent.endswith("#продам #электроника")
     assert photos == ["0.jpg"] and with_photos
     assert notifier.posted[0][2] in ("https://t.me/chat_a/101", "https://t.me/chat_b/101")
 

@@ -15,8 +15,8 @@ from app.db.enums import ApprovalKind, ApprovalStatus, ItemStatus, Language, Pub
 from app.db.models import Approval, Chat, Item, Publication
 from app.db.session import session_scope
 from app.services import chats as chat_service
-from app.services.copywriting import master_text
-from app.services.listing import footer
+from app.services.copywriting import master_text, text_rules_block
+from app.services.listing import footer, strip_emoji
 
 log = logging.getLogger(__name__)
 
@@ -56,6 +56,7 @@ async def generate_for_item(item_id: int, chat_ids: list[int] | None = None) -> 
             if not todo:
                 return 0
             siblings = [p.text for p in existing]
+            rules_text = text_rules_block(item)
 
             created = 0
             for chat in todo:
@@ -71,12 +72,13 @@ async def generate_for_item(item_id: int, chat_ids: list[int] | None = None) -> 
                     f"Format notes: {rules.get('format_notes_ru') or '-'}\n"
                     f"Required hashtags: {' '.join(rules.get('required_hashtags') or []) or '-'}\n"
                     f"Allowed hashtags: {' '.join(rules.get('allowed_hashtags') or []) or '-'}\n\n"
-                    f"[Master text]\n{master.title}\n\n{master.body}\n\n"
+                    + (f"{rules_text}\n\n" if rules_text else "")
+                    + f"[Master text]\n{master.title}\n\n{master.body}\n\n"
                     + "".join(f"[Version for another chat — write differently]\n{t}\n\n" for t in siblings[-3:])
                 )
                 v = await structured(purpose="chat_version", output=ChatVersion, system=prompts.load("chat_version"),
                                      content=content, item_id=item_id, model=settings.ai_model_fast, max_tokens=1500)
-                text = f"{v.title.strip()}\n\n{v.body.strip()}"
+                text = f"{strip_emoji(v.title)}\n\n{strip_emoji(v.body)}"
                 hashtags = _clean_hashtags(v.hashtags, rules)
                 s.add(Publication(item_id=item_id, chat_id=chat.id, text=text, hashtags=hashtags, language=lang,
                                   status=PublicationStatus.DRAFT))

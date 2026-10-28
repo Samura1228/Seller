@@ -13,6 +13,9 @@ Structure of each version:
   3. What's included (box, charger, accessories), if anything.
 
 Do NOT include price, quantity, location, delivery, meetup or contact lines — the system appends them automatically.
-Style: confident and concrete. Moderate emoji (✅ and similar, 2–4 per version), not a wall of them. No pushy clichés ("BEST DEAL EVER!!!"), no CAPS LOCK, no hashtags.
+Style: confident and concrete. No emoji at all (no ✅, no icons or pictographs) — plain text and line breaks only. No pushy clichés ("BEST DEAL EVER!!!"), no CAPS LOCK, no hashtags.
 Body length: 250–600 characters per version.
 Use only facts from the item card. Do not invent specs.
+If the owner's requirements for the text are given, they override every style rule above (for example,
+"no emoji" means no emoji at all, "don't mention the box" means the box is not mentioned). Follow them silently:
+never mention them, edits or removals in the text.

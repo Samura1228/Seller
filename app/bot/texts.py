@@ -65,7 +65,8 @@ ASK_FIX = (
 )
 ASK_EDIT = (
     "📝 Что изменить в тексте <b>{name}</b>?\n"
-    "Например: «короче», «добавь, что работает с iPhone», «убери эмодзи». Правка применится к RU и EN."
+    "Например: «короче», «добавь, что работает с iPhone», «убери предложение про коробку». "
+    "Правка применится к RU и EN, бот запомнит её для следующих правок."
 )
 ASK_QTY = "🔢 Сколько штук <b>{name}</b>?"
 ASK_QTY_NUMBER = "🔢 Отправь количество числом."
@@ -128,6 +129,8 @@ def review_card(item: Item, research: PriceResearch | None, seller: str, *, busy
         if t:
             post = escape(render_post(item, t, seller))
             lines.append(f"\n{flag} <b>{lang.value.upper()}</b>\n<blockquote>{post}</blockquote>")
+    if item.text_rules:
+        lines.append("\n📌 <i>Помню твои правки текста: " + escape("; ".join(item.text_rules)[:500]) + "</i>")
 
     text = "\n".join(lines)
     return text if len(text) <= 4000 else text[:3990] + "…"
