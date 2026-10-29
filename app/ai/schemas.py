@@ -34,8 +34,9 @@ class Recognition(BaseModel):
 
 
 class PriceProposal(BaseModel):
-    new_price_eur: int | None = Field(description="Current official/typical new retail price in EUR, if found")
-    new_price_source_url: str | None = None
+    new_price_eur: int | None = Field(description="Official new price in EUR found in the web research notes; "
+                                      "null if the notes don't give one (never from memory)")
+    new_price_source_url: str | None = Field(default=None, description="URL of that price from the notes")
     relevant_comp_indexes: list[int] = Field(default_factory=list, description="Indexes of comparable listings that really match this item")
     comps_low_eur: int | None = None
     comps_high_eur: int | None = None

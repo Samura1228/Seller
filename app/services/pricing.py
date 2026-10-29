@@ -1,5 +1,6 @@
 import logging
 from decimal import Decimal
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +36,7 @@ async def research_and_propose(s: AsyncSession, item: Item) -> PriceResearch:
         log.warning("Comparables failed for item %s: %s", item.id, e)
         warnings.append(f"аналоги с Bazaraki ({e})")
 
+    web_failed = False
     try:
         research = await web_research(
             purpose="price_research",
@@ -45,6 +47,7 @@ async def research_and_propose(s: AsyncSession, item: Item) -> PriceResearch:
     except Exception as e:  # web search problems must not block pricing: comps + knowledge still work
         log.warning("Web research failed for item %s: %s", item.id, e)
         research = f"(web research unavailable: {type(e).__name__})"
+        web_failed = True
         warnings.append(f"поиск в вебе ({type(e).__name__}: {str(e)[:120]})")
 
     comps_text = "\n".join(
@@ -64,10 +67,14 @@ async def research_and_propose(s: AsyncSession, item: Item) -> PriceResearch:
     )
 
     relevant = [comps[i] for i in proposal.relevant_comp_indexes if 0 <= i < len(comps)]
+    new_price, source = proposal.new_price_eur, proposal.new_price_source_url
+    if web_failed or not _from_notes(source, research):
+        # A "new price" that isn't in what the web search actually found is the model's memory: drop it.
+        new_price, source = None, None
     pr = PriceResearch(
         item_id=item.id,
-        new_price=Decimal(proposal.new_price_eur) if proposal.new_price_eur else None,
-        new_price_source_url=proposal.new_price_source_url,
+        new_price=Decimal(new_price) if new_price else None,
+        new_price_source_url=source,
         comps=relevant,
         proposed_price=Decimal(proposal.price_eur),
         proposed_min=Decimal(min(proposal.min_price_eur, proposal.price_eur)),
@@ -78,6 +85,12 @@ async def research_and_propose(s: AsyncSession, item: Item) -> PriceResearch:
     item.new_price_ref = pr.new_price
     await set_price(s, item, pr.proposed_price, pr.proposed_min, PriceReason.INITIAL, Actor.AI)
     return pr
+
+
+def _from_notes(url: str | None, notes: str) -> bool:
+    """The price's source must be a site the web search actually returned (same domain)."""
+    host = urlparse(url or "").netloc.lower().removeprefix("www.")
+    return bool(host) and host in notes.lower()
 
 
 async def latest_research(s: AsyncSession, item_id: int) -> PriceResearch | None:

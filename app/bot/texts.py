@@ -152,7 +152,9 @@ def review_card(item: Item, research: PriceResearch | None, seller: str, *, busy
     price_block = [f"💶 <b>Цена: {fmt_eur(item.price)}</b> · минимум {fmt_eur(item.min_price)}"]
     refs = []
     if research and research.new_price:
-        refs.append(f"новая {fmt_eur(research.new_price)}")
+        new = f"новая {fmt_eur(research.new_price)}"
+        url = research.new_price_source_url or ""
+        refs.append(f'<a href="{escape(url)}">{new}</a>' if url.startswith("http") else f"{new} (без источника)")
     if (cs := comps_summary(research)):
         refs.append(f"Bazaraki {cs}")
     if refs:

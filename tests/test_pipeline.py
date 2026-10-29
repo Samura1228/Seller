@@ -277,3 +277,28 @@ async def test_bot_queue_shows_one_card_at_a_time(tmp_path):
     await pipeline.approve(second_item)
     await core.show_next(force=True)
     assert core.client.sent[-1][1] == texts.QUEUE_EMPTY
+
+
+async def test_new_price_never_from_memory(monkeypatch, mock_ai):
+    """A 'new price' the web search didn't return (or a failed search) is dropped, whatever the model says."""
+    from app.ai.schemas import PriceProposal
+
+    async def proposal(**_):
+        return PriceProposal(new_price_eur=229, new_price_source_url="https://www.bang-olufsen.com/de/de/x",
+                             relevant_comp_indexes=[], comps_low_eur=None, comps_high_eur=None, price_eur=185,
+                             min_price_eur=160, rationale_ru="Новая: €229 → €185")
+
+    async def notes_without_it(**_):
+        return "Found only: Amazon.de €239 https://amazon.de/dp/1"
+
+    async def notes_with_it(**_):
+        return "Official: €249 https://bang-olufsen.com/de/de/speakers/beosound-explore"
+
+    monkeypatch.setattr(pricing, "structured", proposal)
+    async with session_scope() as s:
+        item_id = await s.scalar(select(Item.id).limit(1))
+    for notes, expected in ((notes_without_it, None), (notes_with_it, Decimal(229))):
+        monkeypatch.setattr(pricing, "web_research", notes)
+        await pipeline.reprice(item_id, FakeNotifier())
+        async with session_scope() as s:
+            assert (await pricing.latest_research(s, item_id)).new_price == expected
