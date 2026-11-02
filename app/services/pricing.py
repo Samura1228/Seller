@@ -71,6 +71,11 @@ async def research_and_propose(s: AsyncSession, item: Item) -> PriceResearch:
     if web_failed or not _from_notes(source, research):
         # A "new price" that isn't in what the web search actually found is the model's memory: drop it.
         new_price, source = None, None
+    # Same rule for Cyprus shops: only prices whose page the web search actually returned.
+    shops = [] if web_failed else [
+        {"shop": sp.shop, "price": sp.price_eur, "url": sp.url}
+        for sp in proposal.cyprus_shops if sp.price_eur > 0 and _from_notes(sp.url, research)]
+    shops.sort(key=lambda x: x["price"])
     pr = PriceResearch(
         item_id=item.id,
         new_price=Decimal(new_price) if new_price else None,
@@ -80,6 +85,7 @@ async def research_and_propose(s: AsyncSession, item: Item) -> PriceResearch:
         proposed_min=Decimal(min(proposal.min_price_eur, proposal.price_eur)),
         rationale=proposal.rationale_ru,
         warnings=warnings,
+        shop_prices=shops,
     )
     s.add(pr)
     item.new_price_ref = pr.new_price
@@ -97,6 +103,21 @@ async def latest_research(s: AsyncSession, item_id: int) -> PriceResearch | None
     return await s.scalar(
         select(PriceResearch).where(PriceResearch.item_id == item_id).order_by(PriceResearch.id.desc()).limit(1)
     )
+
+
+def new_price_refs(pr: PriceResearch | None) -> tuple[str, str] | None:
+    """(official, Cyprus shops) as short plain lines — for the card, the agent and future price proposals."""
+    if pr is None:
+        return None
+    official = f"€{pr.new_price:.0f}" if pr.new_price else "не найдена"
+    shops = pr.shop_prices or []
+    if not shops:
+        cy = "не нашёл"
+    else:
+        prices = [x["price"] for x in shops]
+        rng = f"€{min(prices)}" if min(prices) == max(prices) else f"€{min(prices)}–{max(prices)}"
+        cy = f"{rng} ({', '.join(f'{x['shop']} €{x['price']}' for x in shops[:4])})"
+    return official, cy
 
 
 def comps_summary(pr: PriceResearch | None) -> str | None:

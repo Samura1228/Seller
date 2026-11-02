@@ -33,10 +33,18 @@ class Recognition(BaseModel):
     questions: list[Question] = Field(default_factory=list, description="Only what genuinely needs the owner's confirmation; max 3")
 
 
+class ShopPrice(BaseModel):
+    shop: str = Field(description="Shop name, e.g. Stephanis, Public, Electroline, Bionic")
+    price_eur: int = Field(description="Price for a NEW unit of this exact model, EUR")
+    url: str = Field(description="Product page URL from the research notes")
+
+
 class PriceProposal(BaseModel):
-    new_price_eur: int | None = Field(description="Official new price in EUR found in the web research notes; "
-                                      "null if the notes don't give one (never from memory)")
+    new_price_eur: int | None = Field(description="OFFICIAL new price in EUR (brand's own store) found in the web "
+                                      "research notes; null if the notes don't give one (never from memory)")
     new_price_source_url: str | None = Field(default=None, description="URL of that price from the notes")
+    cyprus_shops: list[ShopPrice] = Field(default_factory=list, description="New-unit prices of this exact model in "
+                                          "shops selling in Cyprus, from the research notes only; empty if none found")
     relevant_comp_indexes: list[int] = Field(default_factory=list, description="Indexes of comparable listings that really match this item")
     comps_low_eur: int | None = None
     comps_high_eur: int | None = None

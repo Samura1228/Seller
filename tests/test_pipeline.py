@@ -139,7 +139,7 @@ async def test_full_stage1_flow(tmp_path, mock_ai):
         research = await pricing.latest_research(s, hp)
         assert len(research.comps) == 2  # out-of-range index 9 ignored
         card = texts.review_card(item, research, settings.seller_username)
-        assert "€170" in card and "Bazaraki €150–180 (2 объявл.)" in card
+        assert "€170" in card and "Bazaraki: €150–180 (2 объявл.)" in card
         assert "Пишите: @limassol_seller" in card and "Message: @limassol_seller" in card
         assert len(card) < 4000
 
@@ -302,3 +302,35 @@ async def test_new_price_never_from_memory(monkeypatch, mock_ai):
         await pipeline.reprice(item_id, FakeNotifier())
         async with session_scope() as s:
             assert (await pricing.latest_research(s, item_id)).new_price == expected
+
+
+async def test_card_shows_official_and_cyprus_shop_prices(monkeypatch, mock_ai):
+    """Every price proposal names the official price and Cyprus shop prices, each from the web search only."""
+    from app.ai.schemas import PriceProposal, ShopPrice
+
+    async def notes(**_):
+        return ("Official: €249 https://www.bang-olufsen.com/de/de/x\n"
+                "skroutz.cy: Stephanis €229 https://www.stephanis.com.cy/p/1 ; Public €239 https://www.public.cy/p/2")
+
+    async def proposal(**_):
+        return PriceProposal(
+            new_price_eur=249, new_price_source_url="https://www.bang-olufsen.com/de/de/x",
+            cyprus_shops=[ShopPrice(shop="Public", price_eur=239, url="https://www.public.cy/p/2"),
+                          ShopPrice(shop="Stephanis", price_eur=229, url="https://www.stephanis.com.cy/p/1"),
+                          ShopPrice(shop="Invented", price_eur=150, url="https://made-up-shop.cy/x")],
+            relevant_comp_indexes=[0], comps_low_eur=150, comps_high_eur=150, price_eur=185, min_price_eur=160,
+            rationale_ru="Официально €249, в магазинах Кипра €229–239 → €185")
+
+    monkeypatch.setattr(pricing, "web_research", notes)
+    monkeypatch.setattr(pricing, "structured", proposal)
+    async with session_scope() as s:
+        item_id = await s.scalar(select(Item.id).limit(1))
+    await pipeline.reprice(item_id, FakeNotifier())
+    async with session_scope() as s:
+        item = await recognition.load_item(s, item_id)
+        research = await pricing.latest_research(s, item_id)
+        card = texts.review_card(item, research, get_settings().seller_username)
+    assert [x["shop"] for x in research.shop_prices] == ["Stephanis", "Public"]  # sorted; the invented shop dropped
+    assert pricing.new_price_refs(research) == ("€249", "€229–239 (Stephanis €229, Public €239)")
+    assert ('🏷 Официально: <a href="https://www.bang-olufsen.com/de/de/x">€249</a> · Магазины Кипра: '
+            'Stephanis <a href="https://www.stephanis.com.cy/p/1">€229</a>') in card

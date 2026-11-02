@@ -139,6 +139,10 @@ async def _get_item(args: dict, ctx: ToolContext) -> str:
             "price": _d(item.price), "min_price": _d(item.min_price), "new_retail_price": _d(item.new_price_ref),
             "left": f"{item.quantity_left}/{item.quantity_total}", "days_listed": _days(item.first_published_at),
             "price_reasoning": research.rationale if research else None,
+            "official_new_price": {"price": _d(research.new_price), "url": research.new_price_source_url}
+            if research and research.new_price else "not found yet — look it up with web search",
+            "cyprus_shops_new": (research.shop_prices or "not found yet — look it up with web search")
+            if research else "not checked — look it up with web search",
             "price_history": [{"price": _d(p.price), "min": _d(p.min_price), "reason": p.reason.value,
                                "when": p.created_at.date()} for p in reversed(history)],
             "listing_ru": f"{ru.title}\n{ru.body}" if ru else None,

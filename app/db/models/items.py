@@ -131,6 +131,7 @@ class PriceResearch(TimestampMixin, Base):
     proposed_min: Mapped[Decimal | None]
     rationale: Mapped[str | None] = mapped_column(sa.Text)
     warnings: Mapped[list[str]] = mapped_column(JSONB, default=list)  # sources that failed, shown on the card
+    shop_prices: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)  # [{shop, price, url}] in Cyprus
 
 
 class PriceHistory(TimestampMixin, Base):

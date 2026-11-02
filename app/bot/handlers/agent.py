@@ -10,7 +10,7 @@ from app.bot import texts
 from app.bot.core import BotCore
 from app.db.models import Item
 from app.db.session import session_scope
-from app.services import pipeline, sales
+from app.services import pipeline, pricing, sales
 from app.services.agent import AgentSession
 from app.services.agent_tools import Proposal
 from app.services.listing import fmt_eur
@@ -34,7 +34,7 @@ def _split(text: str) -> list[str]:
     return [p for p in [*parts, cur] if p.strip()]
 
 
-def proposal_text(p: Proposal, item: Item | None) -> str:
+def proposal_text(p: Proposal, item: Item | None, research=None) -> str:
     name = f"#{p.item_id} {item.display_name}" if item else f"#{p.item_id}"
     detail = ""
     if p.action == "set_price":
@@ -44,7 +44,8 @@ def proposal_text(p: Proposal, item: Item | None) -> str:
         detail = f"\nЗа {fmt_eur(p.price)}"
     elif p.action == "edit_text":
         detail = f"\n<i>{texts.escape(p.instruction or '')}</i>"
-    return f"{ACTION_RU[p.action]} · <b>{texts.escape(name)}</b>{detail}\n{texts.escape(p.summary_ru)}"
+    refs = f"\n{texts.new_price_line(research)}" if p.action == "set_price" and research is not None else ""
+    return f"{ACTION_RU[p.action]} · <b>{texts.escape(name)}</b>{detail}{refs}\n{texts.escape(p.summary_ru)}"
 
 
 def register(core: BotCore) -> None:
@@ -97,7 +98,8 @@ def register(core: BotCore) -> None:
             proposals[pid] = p
             async with session_scope() as s:
                 item = await s.get(Item, p.item_id)
-            await core.send(proposal_text(p, item), buttons=[[Button.inline("✅ Применить", f"ag:ok:{pid}".encode()),
+                research = await pricing.latest_research(s, p.item_id)
+            await core.send(proposal_text(p, item, research), buttons=[[Button.inline("✅ Применить", f"ag:ok:{pid}".encode()),
                                                                Button.inline("❌ Не надо", f"ag:no:{pid}".encode())]])
         raise events.StopPropagation
 

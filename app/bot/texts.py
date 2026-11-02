@@ -150,15 +150,10 @@ def review_card(item: Item, research: PriceResearch | None, seller: str, *, busy
         lines.append("\n❓ <b>Проверь:</b>\n" + "\n".join(f"• {escape(q['question_ru'])}" for q in questions))
 
     price_block = [f"💶 <b>Цена: {fmt_eur(item.price)}</b> · минимум {fmt_eur(item.min_price)}"]
-    refs = []
-    if research and research.new_price:
-        new = f"новая {fmt_eur(research.new_price)}"
-        url = research.new_price_source_url or ""
-        refs.append(f'<a href="{escape(url)}">{new}</a>' if url.startswith("http") else f"{new} (без источника)")
+    if research is not None:
+        price_block.append(new_price_line(research))
     if (cs := comps_summary(research)):
-        refs.append(f"Bazaraki {cs}")
-    if refs:
-        price_block.append(" · ".join(refs))
+        price_block.append(f"Bazaraki: {cs}")
     if research and research.rationale:
         price_block.append(f"<i>{escape(research.rationale)}</i>")
     if research and research.warnings:
@@ -176,6 +171,19 @@ def review_card(item: Item, research: PriceResearch | None, seller: str, *, busy
 
     text = "\n".join(lines)
     return text if len(text) <= 4000 else text[:3990] + "…"
+
+
+def new_price_line(research) -> str:
+    """🏷 Официально: €249 · Магазины Кипра: Stephanis €229, Public €239 — every price links to its source."""
+    if research.new_price:
+        url = research.new_price_source_url or ""
+        official = f'<a href="{escape(url)}">{fmt_eur(research.new_price)}</a>' if url.startswith("http") \
+            else fmt_eur(research.new_price)
+    else:
+        official = "не найдена"
+    shops = research.shop_prices or []
+    cy = ", ".join(f'{escape(x["shop"])} <a href="{escape(x["url"])}">€{x["price"]}</a>' for x in shops[:5]) or "не нашёл"
+    return f"🏷 Официально: {official} · Магазины Кипра: {cy}"
 
 
 def resolved_card(item: Item, verdict: str) -> str:
